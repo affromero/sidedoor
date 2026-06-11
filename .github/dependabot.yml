@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Minimum release age: wait 7 days before proposing any update, so a freshly
+    # published (possibly compromised or broken) release is never pulled in.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       npm:
@@ -13,6 +17,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Minimum release age: wait 7 days before proposing any update, so a freshly
+    # published (possibly compromised or broken) release is never pulled in.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       actions:
