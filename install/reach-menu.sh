@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# sidedoor reach menu — consent-first, private-first.
+# sidedoor reach menu, consent first, private first.
 #
-# Drop this into a docker-compose-style installer. Source it and call:
+# Drop this into a docker compose style installer. Source it and call:
 #
 #   sidedoor_reach_menu <port> [app_name]
 #
@@ -26,11 +26,11 @@ sidedoor_reach_menu() {
   SIDEDOOR_REACH_URL=""
 
   printf '\n  Who should be able to reach %s?\n' "$app"
-  printf '    1) This computer only            (default — nothing is exposed)\n'
+  printf '    1) This computer only            (default, nothing is exposed)\n'
   printf '    2) Other devices on this network (LAN, http, stays on your network)\n'
   printf '    3) Tailscale                     (private https from anywhere, your own devices)\n'
   printf '    4) A public URL via Cloudflare   (exposes it to the public internet)\n'
-  printf '  Choose [1-4] (default 1): '
+  printf '  Choose 1 to 4 (default 1): '
   local choice
   read -r choice
 
@@ -41,18 +41,18 @@ sidedoor_reach_menu() {
       if [ -n "$ip" ]; then
         SIDEDOOR_REACH_URL="http://${ip}:${port}"
         printf '  On your network at: %s\n' "$SIDEDOOR_REACH_URL"
-        printf '  (http only — phones can open it but cannot install it as an app.)\n'
+        printf '  (http only, phones can open it but cannot install it as an app.)\n'
       else
-        printf '  Could not determine your LAN IP — check your network settings.\n'
+        printf '  Could not determine your LAN IP, check your network settings.\n'
       fi
       ;;
     3)
-      printf '  Tailscale — private, only your own devices:\n'
+      printf '  Tailscale, private, only your own devices:\n'
       printf '    1. Install Tailscale on this machine and your phone (same account):\n'
       printf '       https://tailscale.com/download\n'
       printf '    2. sudo tailscale up\n'
       printf '    3. sudo tailscale serve %s\n' "$port"
-      printf '    Tailscale prints a private https URL ending in .ts.net — use that.\n'
+      printf '    Tailscale prints a private https URL ending in .ts.net, use that.\n'
       ;;
     4)
       printf '  WARNING: this exposes %s to the public internet.\n' "$app"

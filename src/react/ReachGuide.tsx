@@ -69,7 +69,7 @@ const METHODS: Method[] = [
       { text: 'Install Tailscale on this machine and your phone, signed into the same account:', code: 'https://tailscale.com/download' },
       { text: 'Bring this machine onto your tailnet:', code: 'sudo tailscale up' },
       { text: 'Serve the app over private https on your tailnet:', code: `sudo tailscale serve ${port}` },
-      { text: 'Tailscale prints an https URL ending in .ts.net — that is your private address. Open it on your phone.' },
+      { text: 'Tailscale prints an https URL ending in .ts.net, that is your private address. Open it on your phone.' },
     ],
   },
   {
@@ -111,7 +111,7 @@ const METHODS: Method[] = [
       { text: "Point an A record for your (sub)domain at this server's public IP." },
       { text: 'Install Caddy:', code: 'https://caddyserver.com/docs/install' },
       { text: 'Create a Caddyfile:', code: `app.example.com {\n  reverse_proxy localhost:${port}\n}` },
-      { text: "Start Caddy — it fetches a Let's Encrypt certificate automatically:", code: 'caddy run' },
+      { text: "Start Caddy, it fetches a Let's Encrypt certificate automatically:", code: 'caddy run' },
     ],
   },
 ];
@@ -121,16 +121,16 @@ const OS_LABELS: Record<OS, string> = { macos: 'macOS', linux: 'Linux', windows:
 export interface ReachGuideProps {
   /** The local port the app listens on. Defaults to "3000". */
   port?: string;
-  /** Hide the public (internet-exposing) options entirely. Default false. */
+  /** Hide the public (internet exposing) options entirely. Default false. */
   privateOnly?: boolean;
   className?: string;
 }
 
 /**
- * A private-first, guided way to reach a self-hosted app from your devices.
- * Private methods (same Wi-Fi, Tailscale) come first; the internet-exposing
+ * A private first, guided way to reach a self hosted app from your devices.
+ * Private methods (same Wi-Fi, Tailscale) come first; the internet exposing
  * options are fenced off behind a clear warning. Pick a method and it walks the
- * OS-specific commands.
+ * OS specific commands.
  */
 export function ReachGuide({ port: portProp, privateOnly = false, className }: ReachGuideProps) {
   const [os, setOs] = useState<OS>('linux');
@@ -175,14 +175,14 @@ export function ReachGuide({ port: portProp, privateOnly = false, className }: R
 
   return (
     <div className={['sd-guide', className].filter(Boolean).join(' ')}>
-      <p className="sd-group-label">Private — only your own devices</p>
+      <p className="sd-group-label">Private, only your own devices</p>
       <div className="sd-methods" role="tablist" aria-label="Private reach methods">
         {privateMethods.map(card)}
       </div>
 
       {publicMethods.length > 0 && (
         <>
-          <p className="sd-group-label sd-group-public">Share with others — this exposes it to the internet</p>
+          <p className="sd-group-label sd-group-public">Share with others, this exposes it to the internet</p>
           <div className="sd-methods" role="tablist" aria-label="Public reach methods">
             {publicMethods.map(card)}
           </div>

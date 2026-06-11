@@ -1,9 +1,9 @@
-// Minimal usage in a React / Next.js app. Illustrative — not part of the build.
+// Minimal usage in a React / Next.js app. Illustrative, not part of the build.
 import '@afromero/sidedoor/styles.css';
 import { ConnectPanel, ReachGuide } from '@afromero/sidedoor/react';
 
 // A drop-in "connect a device" page. Auto-detects the current URL and embeds the
-// private-first reach guide when the URL is not https.
+// private first reach guide when the URL is not https.
 export function ConnectPage() {
   return (
     <main style={{ maxWidth: 560, margin: '0 auto', padding: 24 }}>

@@ -35,7 +35,7 @@ export interface ReachUrlOptions {
 }
 
 /**
- * The best URL a device can use to reach this self-hosted app.
+ * The best URL a device can use to reach this self hosted app.
  *
  * Order: an explicitly configured URL (e.g. a Tailscale `https://*.ts.net`
  * address the operator pasted in), otherwise the origin the current request

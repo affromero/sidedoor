@@ -18,7 +18,7 @@ export interface InstallPrompt {
 
 /**
  * Thin, zero-dependency wrapper over the Add-to-Home-Screen signals. For richer
- * iOS-specific prompts you can layer a dedicated library (e.g. react-ios-pwa-prompt)
+ * iOS specific prompts you can layer a dedicated library (e.g. react-ios-pwa-prompt)
  * on top; this just exposes the state the ConnectPanel needs.
  */
 export function useInstallPrompt(): InstallPrompt {

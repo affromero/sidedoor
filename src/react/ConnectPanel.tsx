@@ -13,15 +13,15 @@ export interface ConnectPanelProps {
   /** Local port, used by the embedded reach guide. */
   port?: string;
   shareChannels?: ShareChannel[];
-  /** Show the private-first reach guide when the URL is not https. Default true. */
+  /** Show the private first reach guide when the URL is not https. Default true. */
   guideWhenInsecure?: boolean;
   className?: string;
 }
 
 /**
- * Everything a device needs to open and install a self-hosted app: the reach
- * URL, a QR, share buttons, add-to-home-screen steps, and — when the URL is not
- * https — the private-first reach guide so the operator can fix that first.
+ * Everything a device needs to open and install a self hosted app: the reach
+ * URL, a QR, share buttons, add to home screen steps, and, when the URL is not
+ * https, the private first reach guide so the operator can fix that first.
  */
 export function ConnectPanel({
   url,
@@ -78,7 +78,7 @@ export function ConnectPanel({
       </div>
 
       {isInstalled ? (
-        <p className="sd-installed">Installed — running as an app.</p>
+        <p className="sd-installed">Installed, running as an app.</p>
       ) : (
         <div className="sd-install">
           {canInstall ? (
