@@ -9,9 +9,9 @@ npm. Please upgrade to the newest release before reporting.
 
 Please report security issues privately, not in a public issue.
 
-* Preferred: open a private report through GitHub, on the repository's
+- Preferred: open a private report through GitHub, on the repository's
   **Security** tab, under **Report a vulnerability** (GitHub Security Advisories).
-* Or email **me@afromero.co** with a description and, if possible, a minimal
+- Or email **me@afromero.co** with a description and, if possible, a minimal
   reproduction.
 
 You can expect an acknowledgement within a few days. Once the issue is
