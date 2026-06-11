@@ -1,7 +1,12 @@
 {
-  "name": "sidedoor",
+  "name": "@afromero/sidedoor",
   "version": "0.1.0",
   "description": "The private side door to your self-hosted apps. Reach a self-hosted web app from your own phone and devices, privately (LAN / Tailscale), install it to the home screen, with a guided, consent-first reach setup. Not a tunnel, not public by default.",
+  "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
+  "homepage": "https://github.com/affromero/sidedoor#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/affromero/sidedoor.git" },
+  "bugs": { "url": "https://github.com/affromero/sidedoor/issues" },
+  "publishConfig": { "access": "public" },
   "keywords": [
     "self-hosted",
     "pwa",

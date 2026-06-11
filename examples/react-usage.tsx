@@ -1,6 +1,6 @@
 // Minimal usage in a React / Next.js app. Illustrative — not part of the build.
-import 'sidedoor/styles.css';
-import { ConnectPanel, ReachGuide } from 'sidedoor/react';
+import '@afromero/sidedoor/styles.css';
+import { ConnectPanel, ReachGuide } from '@afromero/sidedoor/react';
 
 // A drop-in "connect a device" page. Auto-detects the current URL and embeds the
 // private-first reach guide when the URL is not https.
@@ -22,7 +22,7 @@ export function PrivateReachOnly() {
 Server side (Next.js route / server component):
 
   import { headers } from 'next/headers';
-  import { resolveReachUrl } from 'sidedoor/server';
+  import { resolveReachUrl } from '@afromero/sidedoor/server';
 
   const url = resolveReachUrl({
     headers: await headers(),
@@ -31,9 +31,9 @@ Server side (Next.js route / server component):
 
 PWA:
 
-  import { buildManifest, registerServiceWorker } from 'sidedoor/pwa';
+  import { buildManifest, registerServiceWorker } from '@afromero/sidedoor/pwa';
   // 1. serve buildManifest({ name: 'My App', icons: [...] }) at /manifest.webmanifest
-  // 2. copy node_modules/sidedoor/src/pwa/sw.js -> public/sw.js
+  // 2. copy node_modules/@afromero/sidedoor/src/pwa/sw.js -> public/sw.js
   // 3. registerServiceWorker();   // registers /sw.js
 
 Theme by overriding CSS variables:
