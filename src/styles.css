@@ -1,0 +1,321 @@
+/*
+ * sidedoor default styles. Import once: `import 'sidedoor/styles.css'`.
+ * Theme by overriding the --sd-* custom properties on a parent (e.g. :root or
+ * a wrapper). Defaults are a clean, neutral light palette.
+ */
+.sd-panel,
+.sd-guide {
+  --sd-bg: #ffffff;
+  --sd-surface: #f6f7f9;
+  --sd-elevated: #eef0f3;
+  --sd-border: #dfe3e8;
+  --sd-text: #14161a;
+  --sd-muted: #6b7280;
+  --sd-accent: #2563eb;
+  --sd-accent-contrast: #ffffff;
+  --sd-warn: #b42318;
+  --sd-radius: 10px;
+  --sd-font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  --sd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color: var(--sd-text);
+  font-family: var(--sd-font);
+}
+
+.sd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* --- URL card --- */
+.sd-url-card {
+  padding: 0.85rem 1rem;
+  background: var(--sd-surface);
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius);
+}
+.sd-url-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sd-muted);
+  margin-bottom: 0.35rem;
+}
+.sd-url-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.sd-url {
+  flex: 1;
+  font-family: var(--sd-mono);
+  font-size: 0.95rem;
+  word-break: break-all;
+  color: var(--sd-text);
+}
+.sd-copy {
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--sd-text);
+  background: var(--sd-elevated);
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius);
+  cursor: pointer;
+}
+
+/* --- Warning --- */
+.sd-warn {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--sd-warn);
+  border-radius: var(--sd-radius);
+  background: color-mix(in srgb, var(--sd-warn) 8%, transparent);
+}
+.sd-warn-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* --- Reach guide --- */
+.sd-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.sd-group-label {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sd-muted);
+}
+.sd-group-public {
+  color: var(--sd-warn);
+  margin-top: 0.6rem;
+}
+.sd-methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+.sd-method {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  background: var(--sd-surface);
+  border: 2px solid var(--sd-border);
+  border-radius: var(--sd-radius);
+  cursor: pointer;
+  font: inherit;
+  color: var(--sd-text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.sd-method:hover {
+  border-color: var(--sd-accent);
+}
+.sd-method-active {
+  border-color: var(--sd-accent);
+  background: var(--sd-elevated);
+}
+.sd-method-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.sd-method-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.sd-tag {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+}
+.sd-tag-rec {
+  color: var(--sd-accent-contrast);
+  background: var(--sd-accent);
+}
+.sd-method-badge {
+  font-family: var(--sd-mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--sd-accent);
+}
+.sd-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding-top: 0.3rem;
+}
+.sd-detail-public {
+  border-left: 3px solid var(--sd-warn);
+  padding-left: 0.85rem;
+}
+.sd-blurb {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--sd-muted);
+}
+.sd-os {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 3px;
+  padding: 3px;
+  background: var(--sd-surface);
+  border: 1px solid var(--sd-border);
+  border-radius: 999px;
+}
+.sd-os-btn {
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sd-muted);
+  background: none;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.sd-os-btn-active {
+  color: var(--sd-accent-contrast);
+  background: var(--sd-accent);
+}
+.sd-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.sd-step {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.sd-step-text {
+  display: block;
+}
+.sd-code {
+  margin: 0.35rem 0 0;
+  padding: 0.55rem 0.7rem;
+  font-family: var(--sd-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  color: var(--sd-text);
+  background: var(--sd-elevated);
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius);
+}
+
+/* --- QR + share --- */
+.sd-qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+.sd-qr {
+  position: relative;
+  line-height: 0;
+}
+.sd-qr-img {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  border-radius: var(--sd-radius);
+  border: 1px solid var(--sd-border);
+}
+.sd-qr-img svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.sd-qr-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  padding: 3px;
+  background: #ffffff;
+  border-radius: 50%;
+  line-height: 0;
+}
+.sd-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--sd-muted);
+}
+.sd-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.sd-share-btn {
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--sd-text);
+  background: var(--sd-surface);
+  border: 1px solid var(--sd-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.sd-share-primary {
+  color: var(--sd-accent-contrast);
+  background: var(--sd-accent);
+  border-color: var(--sd-accent);
+}
+
+/* --- Install --- */
+.sd-installed {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--sd-accent);
+}
+.sd-install {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.sd-install-btn {
+  align-self: center;
+  padding: 0.55rem 1.2rem;
+  font: inherit;
+  font-weight: 700;
+  color: var(--sd-accent-contrast);
+  background: var(--sd-accent);
+  border: none;
+  border-radius: var(--sd-radius);
+  cursor: pointer;
+}
+.sd-install-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+.sd-install-os {
+  padding: 0.85rem 1rem;
+  background: var(--sd-surface);
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.sd-install-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
