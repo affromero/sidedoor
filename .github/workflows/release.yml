@@ -1,0 +1,42 @@
+name: Release
+
+# Publishes thesidedoor to npm on every v* tag. The version published is
+# whatever is in package.json at the tagged commit, so bump the version and
+# regenerate the lockfile before tagging (the create-release flow does this).
+#
+# Supply chain: publishes with npm provenance, a signed attestation linking the
+# tarball to this repo, commit, and workflow run. Provenance needs id-token:
+# write, a public repo, and the npm registry configured by setup-node.
+#
+# NPM_TOKEN must be an automation or granular publish token for thesidedoor.
+# GitHub Release notes are created separately by the release flow, not here.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

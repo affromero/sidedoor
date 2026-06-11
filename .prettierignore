@@ -1,4 +1,7 @@
 dist
 node_modules
 package-lock.json
-CHANGELOG.md
+
+# Markdown is hand maintained. Prettier rewrites bullet markers to hyphens with
+# no option to keep asterisks, so it stays out of prose entirely.
+*.md

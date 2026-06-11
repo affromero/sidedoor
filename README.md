@@ -8,11 +8,16 @@ Open an app you run yourself on your own phone, privately, and install it to the
 Not a tunnel. Not public by default.
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/v/thesidedoor?style=flat-square&logo=npm&color=brightgreen" alt="npm"></a>
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/dm/thesidedoor?style=flat-square&color=brightgreen&label=downloads" alt="downloads"></a>
-  <a href="https://github.com/affromero/sidedoor/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/v/thesidedoor?style=flat-square&logo=npm&color=brightgreen" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/dm/thesidedoor?style=flat-square&color=brightgreen&label=downloads" alt="npm downloads"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/unpacked-size/thesidedoor?style=flat-square&color=brightgreen" alt="unpacked size"></a>
   <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/types/thesidedoor?style=flat-square&logo=typescript" alt="types"></a>
-  <a href="https://github.com/affromero/sidedoor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square" alt="License: MIT"></a>
+  <br>
+  <a href="https://github.com/affromero/sidedoor/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI"></a>
+  <a href="https://github.com/affromero/sidedoor/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL"></a>
+  <a href="https://socket.dev/npm/package/thesidedoor"><img src="https://img.shields.io/badge/Socket-report-1a8cff?style=flat-square&logo=socket.dev&logoColor=white" alt="Socket supply chain report"></a>
+  <a href="https://github.com/affromero/sidedoor/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs welcome"></a>
+  <a href="https://github.com/affromero/sidedoor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square" alt="MIT license"></a>
 
 </div>
 
@@ -27,6 +32,41 @@ import { ConnectPanel } from 'thesidedoor/react';
 // Reach URL, QR, share sheet, and add to home screen, in one component.
 <ConnectPanel appName="My App" port="3000" />;
 ```
+
+## How it works
+
+```mermaid
+flowchart LR
+    app["Your self hosted app<br/>localhost:3000"]
+
+    subgraph sd["sidedoor"]
+      server["server · resolveReachUrl"]
+      panel["react · ConnectPanel<br/>URL · QR · share · install"]
+      guide["react · ReachGuide"]
+    end
+
+    app --> sd
+
+    subgraph priv["Private · only your devices"]
+      lan["Same Wi-Fi"]
+      ts["Tailscale · recommended"]
+    end
+
+    subgraph pub["Public · opt in"]
+      cf["Cloudflare Tunnel"]
+      dom["Your own domain"]
+    end
+
+    sd --> priv
+    sd -. "opt in" .-> pub
+
+    priv --> phone["Your phone<br/>installed to home screen"]
+    pub -.-> phone
+```
+
+sidedoor resolves the reachable URL, renders the connect UI, and walks a private first reach setup.
+The private methods come first; the public ones are a clearly marked opt in. Either way your phone
+ends up with the app installed to its home screen.
 
 ## Why
 
@@ -44,31 +84,31 @@ private first reach setup, and install to the home screen.
 
 ## Why now
 
-- Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
+* Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
   a ten minute setup for non experts.
-- [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
+* [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
   app installs to the home screen and feels native, as long as it is served over https, which a
   tailnet gives you for free with no public exposure.
-- A wave of people are building local first and self hosted AI tools, all hitting the same wall:
+* A wave of people are building local first and self hosted AI tools, all hitting the same wall:
   now get it on my phone, but keep it private.
 
 ## Use cases
 
-- **Your local AI tool, on the couch.** You run a local LLM chat or an agent on your desktop or
+* **Your local AI tool, on the couch.** You run a local LLM chat or an agent on your desktop or
   home server. sidedoor gets it onto your phone over Tailscale, installed like an app, without ever
   putting your prompts on the public internet.
-- **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
+* **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
   flight tracker). Everyone opens it on their own phone from the home screen, each with their own
   private login, all pointing at one instance you run.
-- **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
+* **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
   [Home Assistant](https://www.home-assistant.io), a [Raspberry Pi](https://www.raspberrypi.com)
   project. Reach them from your phone on your tailnet and pin them to the home screen, no domain
   and no public exposure.
-- **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
+* **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
   it on your phone, or hand a QR to a friend on your WiFi, without buying a domain or opening a port.
-- **You refuse to expose personal services.** You want phone access but not a public URL. sidedoor
+* **You refuse to expose personal services.** You want phone access but not a public URL. sidedoor
   defaults to private and only shows the public options if you explicitly ask.
-- **You ship a self hosted app and want onboarding that just works.** Drop the ConnectPanel and the
+* **You ship a self hosted app and want onboarding that just works.** Drop the ConnectPanel and the
   install menu into your app so your users get onto their phones without you hand writing the QR,
   the share sheet, the PWA glue, and the Tailscale instructions.
 
@@ -84,9 +124,9 @@ Three layers. The ones above and below are mature; the middle is empty, and that
 
 Two contrasts worth naming:
 
-- **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
+* **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
   access (let me and my household in).
-- **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
+* **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
   mini apps over a chat, so it removes the server. sidedoor is for when you have a real backend
   (a database, jobs, an LLM) and just need your own devices to reach it. Same self sovereign ethos,
   opposite mechanism.
@@ -101,12 +141,12 @@ the application layer on top, and Tailscale is its recommended transport, not it
 Stripe versus a payments SDK: one is the rails, the other is how your app uses them). Tailscale
 hands you `https://myapp.tail1234.ts.net:3000`. sidedoor is everything after that:
 
-- a QR and a share sheet, so nobody types that URL on a phone;
-- a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
+* a QR and a share sheet, so nobody types that URL on a phone;
+* a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
   have nothing to do with the network;
-- the Add to Home Screen steps, shown inside your app;
-- resolving the app's own reachable URL to render all of it;
-- a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
+* the Add to Home Screen steps, shown inside your app;
+* resolving the app's own reachable URL to render all of it;
+* a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
   have never heard of it.
 
 The deeper point: sidedoor is for the app developer, not the operator. Tailscale is something a user
