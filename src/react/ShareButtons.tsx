@@ -37,7 +37,12 @@ export function ShareButtons({
         </button>
       )}
       {channels.includes('whatsapp') && (
-        <a className="sd-share-btn" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">
+        <a
+          className="sd-share-btn"
+          href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+          target="_blank"
+          rel="noreferrer"
+        >
           WhatsApp
         </a>
       )}
@@ -52,7 +57,10 @@ export function ShareButtons({
         </a>
       )}
       {channels.includes('email') && (
-        <a className="sd-share-btn" href={`mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(message)}`}>
+        <a
+          className="sd-share-btn"
+          href={`mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(message)}`}
+        >
           Email
         </a>
       )}

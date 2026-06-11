@@ -17,7 +17,14 @@ export interface QrCodeProps {
   className?: string;
 }
 
-export function QrCode({ value, size = 220, dark = '#0b0b0c', light = '#ffffff', logo, className }: QrCodeProps) {
+export function QrCode({
+  value,
+  size = 220,
+  dark = '#0b0b0c',
+  light = '#ffffff',
+  logo,
+  className,
+}: QrCodeProps) {
   const [svg, setSvg] = useState('');
 
   useEffect(() => {

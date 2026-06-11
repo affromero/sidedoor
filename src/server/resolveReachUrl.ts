@@ -21,7 +21,15 @@ function getHeader(h: HeaderInput | undefined, name: string): string | undefined
 
 /** True for addresses a phone on another device cannot reach. */
 export function isLocalHost(host: string): boolean {
-  const h = host.split(':')[0]!.toLowerCase();
+  let h = host.trim().toLowerCase();
+  if (h.startsWith('[')) {
+    // Bracketed IPv6, optionally with a port: [::1] or [::1]:3000.
+    h = h.slice(1, h.indexOf(']') === -1 ? h.length : h.indexOf(']'));
+  } else if ((h.match(/:/g) ?? []).length === 1) {
+    // Exactly one colon means host:port. A bare IPv6 address has several, so
+    // splitting it here would mangle ::1 into the empty string.
+    h = h.split(':')[0]!;
+  }
   return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h.endsWith('.local');
 }
 

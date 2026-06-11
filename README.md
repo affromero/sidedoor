@@ -25,7 +25,7 @@ import 'thesidedoor/styles.css';
 import { ConnectPanel } from 'thesidedoor/react';
 
 // Reach URL, QR, share sheet, and add to home screen, in one component.
-<ConnectPanel appName="My App" port="3000" />
+<ConnectPanel appName="My App" port="3000" />;
 ```
 
 ## Why
@@ -44,31 +44,31 @@ private first reach setup, and install to the home screen.
 
 ## Why now
 
-* Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
+- Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
   a ten minute setup for non experts.
-* [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
+- [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
   app installs to the home screen and feels native, as long as it is served over https, which a
   tailnet gives you for free with no public exposure.
-* A wave of people are building local first and self hosted AI tools, all hitting the same wall:
+- A wave of people are building local first and self hosted AI tools, all hitting the same wall:
   now get it on my phone, but keep it private.
 
 ## Use cases
 
-* **Your local AI tool, on the couch.** You run a local LLM chat or an agent on your desktop or
+- **Your local AI tool, on the couch.** You run a local LLM chat or an agent on your desktop or
   home server. sidedoor gets it onto your phone over Tailscale, installed like an app, without ever
   putting your prompts on the public internet.
-* **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
+- **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
   flight tracker). Everyone opens it on their own phone from the home screen, each with their own
   private login, all pointing at one instance you run.
-* **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
+- **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
   [Home Assistant](https://www.home-assistant.io), a [Raspberry Pi](https://www.raspberrypi.com)
   project. Reach them from your phone on your tailnet and pin them to the home screen, no domain
   and no public exposure.
-* **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
+- **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
   it on your phone, or hand a QR to a friend on your WiFi, without buying a domain or opening a port.
-* **You refuse to expose personal services.** You want phone access but not a public URL. sidedoor
+- **You refuse to expose personal services.** You want phone access but not a public URL. sidedoor
   defaults to private and only shows the public options if you explicitly ask.
-* **You ship a self hosted app and want onboarding that just works.** Drop the ConnectPanel and the
+- **You ship a self hosted app and want onboarding that just works.** Drop the ConnectPanel and the
   install menu into your app so your users get onto their phones without you hand writing the QR,
   the share sheet, the PWA glue, and the Tailscale instructions.
 
@@ -76,17 +76,17 @@ private first reach setup, and install to the home screen.
 
 Three layers. The ones above and below are mature; the middle is empty, and that is sidedoor.
 
-| Layer | Examples | sidedoor |
-| --- | --- | --- |
-| Transport | [ngrok](https://ngrok.com), [localtunnel](https://github.com/localtunnel/localtunnel), [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/), [Tailscale](https://tailscale.com) ([more](https://github.com/anderspitman/awesome-tunneling)) | Does not replace them. The reach guide recommends and walks them, private ones first. |
-| Install prompt | [react-ios-pwa-prompt](https://www.npmjs.com/package/react-ios-pwa-prompt), [react-pwa-install](https://www.npmjs.com/package/react-pwa-install) | Does not reinvent. Keeps a thin hook you can layer those on top of. |
-| Onboarding glue | basically nothing | This is sidedoor. |
+| Layer           | Examples                                                                                                                                                                                                                                                | sidedoor                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Transport       | [ngrok](https://ngrok.com), [localtunnel](https://github.com/localtunnel/localtunnel), [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/), [Tailscale](https://tailscale.com) ([more](https://github.com/anderspitman/awesome-tunneling)) | Does not replace them. The reach guide recommends and walks them, private ones first. |
+| Install prompt  | [react-ios-pwa-prompt](https://www.npmjs.com/package/react-ios-pwa-prompt), [react-pwa-install](https://www.npmjs.com/package/react-pwa-install)                                                                                                        | Does not reinvent. Keeps a thin hook you can layer those on top of.                   |
+| Onboarding glue | basically nothing                                                                                                                                                                                                                                       | This is sidedoor.                                                                     |
 
 Two contrasts worth naming:
 
-* **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
+- **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
   access (let me and my household in).
-* **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
+- **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
   mini apps over a chat, so it removes the server. sidedoor is for when you have a real backend
   (a database, jobs, an LLM) and just need your own devices to reach it. Same self sovereign ethos,
   opposite mechanism.
@@ -101,12 +101,12 @@ the application layer on top, and Tailscale is its recommended transport, not it
 Stripe versus a payments SDK: one is the rails, the other is how your app uses them). Tailscale
 hands you `https://myapp.tail1234.ts.net:3000`. sidedoor is everything after that:
 
-* a QR and a share sheet, so nobody types that URL on a phone;
-* a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
+- a QR and a share sheet, so nobody types that URL on a phone;
+- a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
   have nothing to do with the network;
-* the Add to Home Screen steps, shown inside your app;
-* resolving the app's own reachable URL to render all of it;
-* a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
+- the Add to Home Screen steps, shown inside your app;
+- resolving the app's own reachable URL to render all of it;
+- a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
   have never heard of it.
 
 The deeper point: sidedoor is for the app developer, not the operator. Tailscale is something a user
@@ -122,7 +122,12 @@ Four independent entry points. Only `thesidedoor/react` needs React.
 
 ```tsx
 import {
-  ConnectPanel, ReachGuide, QrCode, ShareButtons, useInstallPrompt, clientReachUrl,
+  ConnectPanel,
+  ReachGuide,
+  QrCode,
+  ShareButtons,
+  useInstallPrompt,
+  clientReachUrl,
 } from 'thesidedoor/react';
 ```
 
@@ -140,7 +145,7 @@ Each method walks the commands for macOS, Linux, or Windows.
 import { resolveReachUrl, isPrivateReachUrl } from 'thesidedoor/server';
 
 const url = resolveReachUrl({
-  headers: await headers(),                   // Next.js: from next/headers
+  headers: await headers(), // Next.js: from next/headers
   configuredUrl: process.env.PUBLIC_BASE_URL, // a saved tailnet or LAN URL wins
 });
 ```

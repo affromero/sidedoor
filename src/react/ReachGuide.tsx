@@ -53,9 +53,17 @@ const METHODS: Method[] = [
                     ? 'ipconfig   (use the IPv4 Address)'
                     : "hostname -I | awk '{print $1}'",
             },
-            { text: 'On your phone (same Wi-Fi), open that address with the port:', code: `http://<that-ip>:${port}` },
+            {
+              text: 'On your phone (same Wi-Fi), open that address with the port:',
+              code: `http://<that-ip>:${port}`,
+            },
           ]
-        : [{ text: 'Open this exact address on your phone (it must be on the same Wi-Fi):', code: `http://${host}` }],
+        : [
+            {
+              text: 'Open this exact address on your phone (it must be on the same Wi-Fi):',
+              code: `http://${host}`,
+            },
+          ],
   },
   {
     id: 'tailscale',
@@ -66,10 +74,15 @@ const METHODS: Method[] = [
     blurb:
       'Reach it from anywhere, but only from your own devices. A private, encrypted URL on your tailnet that never touches the public internet, and installs as an app (it is https).',
     steps: ({ port }) => [
-      { text: 'Install Tailscale on this machine and your phone, signed into the same account:', code: 'https://tailscale.com/download' },
+      {
+        text: 'Install Tailscale on this machine and your phone, signed into the same account:',
+        code: 'https://tailscale.com/download',
+      },
       { text: 'Bring this machine onto your tailnet:', code: 'sudo tailscale up' },
       { text: 'Serve the app over private https on your tailnet:', code: `sudo tailscale serve ${port}` },
-      { text: 'Tailscale prints an https URL ending in .ts.net, that is your private address. Open it on your phone.' },
+      {
+        text: 'Tailscale prints an https URL ending in .ts.net, that is your private address. Open it on your phone.',
+      },
     ],
   },
   {
@@ -89,7 +102,10 @@ const METHODS: Method[] = [
               ? 'winget install --id Cloudflare.cloudflared'
               : 'sudo apt install cloudflared',
       },
-      { text: 'Quick, temporary public URL (no account):', code: `cloudflared tunnel --url http://localhost:${port}` },
+      {
+        text: 'Quick, temporary public URL (no account):',
+        code: `cloudflared tunnel --url http://localhost:${port}`,
+      },
       {
         text: 'Permanent URL on your own domain (needs a free Cloudflare account with the domain added):',
         code: [
@@ -106,7 +122,8 @@ const METHODS: Method[] = [
     label: 'Your own domain',
     exposure: 'public',
     badge: 'https · public',
-    blurb: 'A permanent public https URL on a domain you own, via Caddy. Use only if you want it reachable by anyone.',
+    blurb:
+      'A permanent public https URL on a domain you own, via Caddy. Use only if you want it reachable by anyone.',
     steps: ({ port }) => [
       { text: "Point an A record for your (sub)domain at this server's public IP." },
       { text: 'Install Caddy:', code: 'https://caddyserver.com/docs/install' },
@@ -189,7 +206,11 @@ export function ReachGuide({ port: portProp, privateOnly = false, className }: R
         </>
       )}
 
-      <div className={['sd-detail', method.exposure === 'public' ? 'sd-detail-public' : ''].filter(Boolean).join(' ')}>
+      <div
+        className={['sd-detail', method.exposure === 'public' ? 'sd-detail-public' : '']
+          .filter(Boolean)
+          .join(' ')}
+      >
         <p className="sd-blurb">{method.blurb}</p>
 
         {osMatters && (

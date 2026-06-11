@@ -113,7 +113,9 @@
   cursor: pointer;
   font: inherit;
   color: var(--sd-text);
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 .sd-method:hover {
   border-color: var(--sd-accent);

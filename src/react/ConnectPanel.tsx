@@ -62,9 +62,9 @@ export function ConnectPanel({
       {!isSecure && (
         <div className="sd-warn">
           <p className="sd-warn-text">
-            This URL is not <strong>https</strong>, so a phone can open it on your network but can&apos;t install it as
-            an app, and the connection isn&apos;t encrypted. For a private https address you can reach from anywhere, use
-            Tailscale below.
+            This URL is not <strong>https</strong>, so a phone can open it on your network but can&apos;t
+            install it as an app, and the connection isn&apos;t encrypted. For a private https address you can
+            reach from anywhere, use Tailscale below.
           </p>
         </div>
       )}
