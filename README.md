@@ -91,6 +91,29 @@ Two contrasts worth naming:
   (a database, jobs, an LLM) and just need your own devices to reach it. Same self sovereign ethos,
   opposite mechanism.
 
+## Why not just Tailscale?
+
+Fair question, and the honest answer concedes it: [Tailscale](https://tailscale.com) is excellent,
+and if you are one technical person self hosting for yourself, you may not need sidedoor.
+
+It is a category difference. Tailscale is the transport, a private network and a URL. sidedoor is
+the application layer on top, and Tailscale is its recommended transport, not its competitor (think
+Stripe versus a payments SDK: one is the rails, the other is how your app uses them). Tailscale
+hands you `https://myapp.tail1234.ts.net:3000`. sidedoor is everything after that:
+
+* a QR and a share sheet, so nobody types that URL on a phone;
+* a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
+  have nothing to do with the network;
+* the Add to Home Screen steps, shown inside your app;
+* resolving the app's own reachable URL to render all of it;
+* a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
+  have never heard of it.
+
+The deeper point: sidedoor is for the app developer, not the operator. Tailscale is something a user
+installs and configures; you cannot put it inside your product's onboarding, but you can put
+sidedoor. If you self host only for yourself, that gap is small. If you ship a self hosted app to
+other people who are not networking experts, that gap is the whole job.
+
 ## API
 
 Four independent entry points. Only `@afromero/sidedoor/react` needs React.
