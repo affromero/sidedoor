@@ -15,6 +15,7 @@ Not a tunnel. Not public by default.
   <br>
   <a href="https://github.com/affromero/sidedoor/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI"></a>
   <a href="https://github.com/affromero/sidedoor/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/affromero/sidedoor"><img src="https://img.shields.io/ossf-scorecard/github.com/affromero/sidedoor?style=flat-square&label=scorecard" alt="OpenSSF Scorecard"></a>
   <a href="https://socket.dev/npm/package/thesidedoor"><img src="https://img.shields.io/badge/Socket-report-1a8cff?style=flat-square&logo=socket.dev&logoColor=white" alt="Socket supply chain report"></a>
   <a href="https://github.com/affromero/sidedoor/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs welcome"></a>
   <a href="https://github.com/affromero/sidedoor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square" alt="MIT license"></a>
