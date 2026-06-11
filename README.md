@@ -36,8 +36,8 @@ steps. The easy shortcut is to put it on the public internet, which is the one t
 want for a personal service.
 
 sidedoor packages that flow and makes one deliberate choice the other tools do not: **private by
-default.** Your own network and your own devices come first (LAN, Tailscale). Exposing the app to
-the internet is a clearly marked opt in, never the happy path.
+default.** Your own network and your own devices come first (LAN, [Tailscale](https://tailscale.com)).
+Exposing the app to the internet is a clearly marked opt in, never the happy path.
 
 It ships the piece nobody packages: resolve the reachable URL, show a QR and a share sheet, walk a
 private first reach setup, and install to the home screen.
@@ -46,8 +46,9 @@ private first reach setup, and install to the home screen.
 
 * Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
   a ten minute setup for non experts.
-* PWAs grew up. A self hosted app installs to the home screen and feels native, as long as it is
-  served over https, which a tailnet gives you for free with no public exposure.
+* [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
+  app installs to the home screen and feels native, as long as it is served over https, which a
+  tailnet gives you for free with no public exposure.
 * A wave of people are building local first and self hosted AI tools, all hitting the same wall:
   now get it on my phone, but keep it private.
 
@@ -59,7 +60,8 @@ private first reach setup, and install to the home screen.
 * **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
   flight tracker). Everyone opens it on their own phone from the home screen, each with their own
   private login, all pointing at one instance you run.
-* **Homelab dashboards in your pocket.** Grafana, a media server, Home Assistant, a Raspberry Pi
+* **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
+  [Home Assistant](https://www.home-assistant.io), a [Raspberry Pi](https://www.raspberrypi.com)
   project. Reach them from your phone on your tailnet and pin them to the home screen, no domain
   and no public exposure.
 * **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
@@ -76,17 +78,18 @@ Three layers. The ones above and below are mature; the middle is empty, and that
 
 | Layer | Examples | sidedoor |
 | --- | --- | --- |
-| Transport | ngrok, localtunnel, Cloudflare Tunnel, Tailscale | Does not replace them. The reach guide recommends and walks them, private ones first. |
-| Install prompt | react-ios-pwa-prompt, react-pwa-install | Does not reinvent. Keeps a thin hook you can layer those on top of. |
+| Transport | [ngrok](https://ngrok.com), [localtunnel](https://github.com/localtunnel/localtunnel), [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/), [Tailscale](https://tailscale.com) ([more](https://github.com/anderspitman/awesome-tunneling)) | Does not replace them. The reach guide recommends and walks them, private ones first. |
+| Install prompt | [react-ios-pwa-prompt](https://www.npmjs.com/package/react-ios-pwa-prompt), [react-pwa-install](https://www.npmjs.com/package/react-pwa-install) | Does not reinvent. Keeps a thin hook you can layer those on top of. |
 | Onboarding glue | basically nothing | This is sidedoor. |
 
 Two contrasts worth naming:
 
 * **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
   access (let me and my household in).
-* **Not Delta Chat or webxdc.** webxdc ships serverless mini apps over a chat, so it removes the
-  server. sidedoor is for when you have a real backend (a database, jobs, an LLM) and just need
-  your own devices to reach it. Same self sovereign ethos, opposite mechanism.
+* **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
+  mini apps over a chat, so it removes the server. sidedoor is for when you have a real backend
+  (a database, jobs, an LLM) and just need your own devices to reach it. Same self sovereign ethos,
+  opposite mechanism.
 
 ## API
 
@@ -159,9 +162,10 @@ Override the `--sd-*` custom properties (defaults are a neutral light palette):
 
 ## Status
 
-Early and intentionally small (about 20 kB packed, one runtime dependency: `qrcode`). React is an
-optional peer dependency, so `/server`, `/pwa`, and the shell menu carry no React. Built to ESM,
-CJS, and types with [tsup](https://tsup.egoist.dev).
+Early and intentionally small (about 20 kB packed, one runtime dependency:
+[`qrcode`](https://www.npmjs.com/package/qrcode)). React is an optional peer dependency, so
+`/server`, `/pwa`, and the shell menu carry no React. Built to ESM, CJS, and types with
+[tsup](https://tsup.egoist.dev).
 
 ## License
 
