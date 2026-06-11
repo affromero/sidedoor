@@ -8,21 +8,21 @@ Open an app you run yourself on your own phone, privately, and install it to the
 Not a tunnel. Not public by default.
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@afromero/sidedoor"><img src="https://img.shields.io/npm/v/@afromero/sidedoor?style=flat-square&logo=npm&color=brightgreen" alt="npm"></a>
-  <a href="https://www.npmjs.com/package/@afromero/sidedoor"><img src="https://img.shields.io/npm/dm/@afromero/sidedoor?style=flat-square&color=brightgreen&label=downloads" alt="downloads"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/v/thesidedoor?style=flat-square&logo=npm&color=brightgreen" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/dm/thesidedoor?style=flat-square&color=brightgreen&label=downloads" alt="downloads"></a>
   <a href="https://github.com/affromero/sidedoor/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/@afromero/sidedoor"><img src="https://img.shields.io/npm/types/@afromero/sidedoor?style=flat-square&logo=typescript" alt="types"></a>
+  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/types/thesidedoor?style=flat-square&logo=typescript" alt="types"></a>
   <a href="https://github.com/affromero/sidedoor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square" alt="License: MIT"></a>
 
 </div>
 
 ```bash
-npm install @afromero/sidedoor
+npm install thesidedoor
 ```
 
 ```tsx
-import '@afromero/sidedoor/styles.css';
-import { ConnectPanel } from '@afromero/sidedoor/react';
+import 'thesidedoor/styles.css';
+import { ConnectPanel } from 'thesidedoor/react';
 
 // Reach URL, QR, share sheet, and add to home screen, in one component.
 <ConnectPanel appName="My App" port="3000" />
@@ -116,14 +116,14 @@ other people who are not networking experts, that gap is the whole job.
 
 ## API
 
-Four independent entry points. Only `@afromero/sidedoor/react` needs React.
+Four independent entry points. Only `thesidedoor/react` needs React.
 
 **`/react`**
 
 ```tsx
 import {
   ConnectPanel, ReachGuide, QrCode, ShareButtons, useInstallPrompt, clientReachUrl,
-} from '@afromero/sidedoor/react';
+} from 'thesidedoor/react';
 ```
 
 `<ConnectPanel>` renders the reach URL, a QR (optional centre `logo`), share buttons, the install
@@ -137,7 +137,7 @@ Each method walks the commands for macOS, Linux, or Windows.
 **`/server`**
 
 ```ts
-import { resolveReachUrl, isPrivateReachUrl } from '@afromero/sidedoor/server';
+import { resolveReachUrl, isPrivateReachUrl } from 'thesidedoor/server';
 
 const url = resolveReachUrl({
   headers: await headers(),                   // Next.js: from next/headers
@@ -151,18 +151,18 @@ Framework agnostic. Accepts a web `Headers` object, a Node `req.headers`, or a g
 **`/pwa`**
 
 ```ts
-import { buildManifest, registerServiceWorker } from '@afromero/sidedoor/pwa';
+import { buildManifest, registerServiceWorker } from 'thesidedoor/pwa';
 ```
 
 Serve `buildManifest({ name: 'My App', icons: [...] })` at `/manifest.webmanifest`, copy
-`@afromero/sidedoor/sw.js` into your public root, and call `registerServiceWorker()`. The shipped
+`thesidedoor/sw.js` into your public root, and call `registerServiceWorker()`. The shipped
 worker is network first and never caches the HTML shell, so installing never serves a stale page
 after a redeploy.
 
 **`/install`**
 
 ```bash
-source node_modules/@afromero/sidedoor/install/reach-menu.sh
+source node_modules/thesidedoor/install/reach-menu.sh
 sidedoor_reach_menu 3000 "My App"
 ```
 
