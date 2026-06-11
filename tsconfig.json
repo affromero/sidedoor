@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // tsup's dts pass injects baseUrl, which TypeScript 6 deprecates and errors
+    // on. Silence it here until tsup drops baseUrl (it is harmless for our
+    // relative-only imports).
+    "ignoreDeprecations": "6.0",
     "target": "ES2021",
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",

@@ -9,12 +9,9 @@ updates:
       npm:
         patterns:
           - '*'
-    ignore:
-      # Major toolchain bumps (TypeScript, ESLint, Vitest, react-hooks) need
-      # code changes, so they are adopted deliberately, not via an auto PR.
-      - dependency-name: '*'
         update-types:
-          - version-update:semver-major
+          - minor
+          - patch
   - package-ecosystem: github-actions
     directory: /
     schedule:
