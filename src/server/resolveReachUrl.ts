@@ -3,9 +3,7 @@
  * (`req.headers`), or a plain getter. Lets resolveReachUrl work in any backend.
  */
 export type HeaderInput =
-  | Headers
-  | Record<string, string | string[] | undefined>
-  | ((name: string) => string | null | undefined);
+  Headers | Record<string, string | string[] | undefined> | ((name: string) => string | null | undefined);
 
 function getHeader(h: HeaderInput | undefined, name: string): string | undefined {
   if (!h) return undefined;
