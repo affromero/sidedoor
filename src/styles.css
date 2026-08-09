@@ -321,3 +321,9 @@
   margin: 0 0 0.4rem;
   font-size: 0.9rem;
 }
+/* Host apps commonly reset list padding to 0, which pushes the outside
+   markers past the card edge — own the indent like .sd-steps does. */
+.sd-install-os ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
