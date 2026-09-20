@@ -1,7 +1,26 @@
 {
   "name": "thesidedoor-core",
   "version": "0.1.0",
-  "description": "Shared self-hosted application infrastructure",
+  "description": "Self-hosted AI, access, storage, jobs, notifications, metrics and operations infrastructure",
+  "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
+  "homepage": "https://github.com/affromero/sidedoor#readme",
+  "bugs": {
+    "url": "https://github.com/affromero/sidedoor/issues"
+  },
+  "keywords": [
+    "ai",
+    "byok",
+    "self-hosted",
+    "passkeys",
+    "webauthn",
+    "storage",
+    "s3",
+    "cloudflare-r2",
+    "jobs",
+    "notifications",
+    "observability",
+    "typescript"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

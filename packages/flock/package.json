@@ -1,7 +1,19 @@
 {
   "name": "thesidedoor-flock",
   "version": "0.1.0",
-  "description": "Sidedoor's fs-ext binding with synchronous file locking across workers",
+  "description": "Native operating-system file locking for Sidedoor file-backed state",
+  "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
+  "homepage": "https://github.com/affromero/sidedoor#readme",
+  "bugs": {
+    "url": "https://github.com/affromero/sidedoor/issues"
+  },
+  "keywords": [
+    "file-locking",
+    "flock",
+    "native-addon",
+    "self-hosted",
+    "nodejs"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

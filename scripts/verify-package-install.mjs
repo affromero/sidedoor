@@ -172,7 +172,9 @@ try {
     try {
       await access(join(directory, 'node_modules', name, 'package.json'));
     } catch (error) {
-      throw new Error(`${name} is missing after clean installation:\n${cleanInstallOutput}`, { cause: error });
+      throw new Error(`${name} is missing after clean installation:\n${cleanInstallOutput}`, {
+        cause: error,
+      });
     }
   }
   await writeFile(join(directory, 'ai-text.mjs'), await readFile(join(root, 'examples/ai-text.mjs')));

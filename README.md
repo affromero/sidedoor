@@ -1,6 +1,6 @@
 # Sidedoor
 
-Shared infrastructure for applications whose users bring their own AI access and run their own server.
+Reusable backend and access infrastructure for open-source applications whose users bring their own AI access and run their own server.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI)](https://github.com/affromero/sidedoor/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL)](https://github.com/affromero/sidedoor/actions/workflows/codeql.yml)
