@@ -127,7 +127,7 @@ export class ObjectStorageCleanup {
     }
     let token: string | undefined;
     const seen = new Set<string>();
-    do {
+    while (true) {
       signal?.throwIfAborted();
       const page = await this.port.listObjects(prefix, token, 1000, signal);
       signal?.throwIfAborted();
@@ -136,7 +136,7 @@ export class ObjectStorageCleanup {
       token = page.nextToken;
       if (!token || seen.has(token)) throw new Error('Storage listing did not advance');
       seen.add(token);
-    } while (token);
+    }
   }
 
   private listedKey(key: string | undefined, prefix: string): string {
@@ -153,7 +153,7 @@ export class ObjectStorageCleanup {
     let keyMarker: string | undefined;
     let versionMarker: string | undefined;
     const seen = new Set<string>();
-    do {
+    while (true) {
       signal?.throwIfAborted();
       const page = await port.listVersions(prefix, keyMarker, versionMarker, 1000, signal);
       signal?.throwIfAborted();
@@ -167,7 +167,7 @@ export class ObjectStorageCleanup {
       const marker = JSON.stringify([keyMarker, versionMarker]);
       if (!keyMarker || seen.has(marker)) throw new Error('Storage version listing did not advance');
       seen.add(marker);
-    } while (keyMarker);
+    }
   }
 
   /** Caller establishes ownership and drains writers before invoking deletion. */

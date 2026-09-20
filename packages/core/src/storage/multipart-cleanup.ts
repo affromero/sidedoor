@@ -30,7 +30,7 @@ export class MultipartStorageCleanup {
     let keyMarker: string | undefined;
     let uploadIdMarker: string | undefined;
     const seen = new Set<string>();
-    do {
+    while (true) {
       signal?.throwIfAborted();
       const page = await this.port.listMultipart(prefix, keyMarker, uploadIdMarker, 1000, signal);
       signal?.throwIfAborted();
@@ -54,7 +54,7 @@ export class MultipartStorageCleanup {
       if (!keyMarker || !uploadIdMarker || seen.has(marker))
         throw new Error('Multipart listing did not advance');
       seen.add(marker);
-    } while (keyMarker);
+    }
   }
 
   async delete(key: string, signal?: AbortSignal): Promise<void> {

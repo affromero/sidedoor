@@ -62,9 +62,8 @@ export async function runStorageCleanup<Transaction>(
     for (const binding of bindings) await executions(transaction).begin(binding);
   });
   let externalStarted = false;
-  let complete = false;
   try {
-    while (!complete) {
+    while (true) {
       signal.throwIfAborted();
       const snapshot = await input.transaction(async (transaction) => {
         const store = journal(transaction);
@@ -79,10 +78,7 @@ export async function runStorageCleanup<Transaction>(
         return { job, collectors };
       });
       const { job, collectors } = snapshot;
-      if (job.phase === 'complete') {
-        complete = true;
-        break;
-      }
+      if (job.phase === 'complete') break;
       if (job.phase === 'preparing' || job.phase === 'ready') {
         await input.transaction((transaction) =>
           executions(transaction).transition(job.id, job.epoch, bindings),

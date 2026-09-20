@@ -261,19 +261,19 @@ export class AccessService {
     });
   }
 
-  private async passwordProof(token: string, password: string) {
-    const auth = await this.authenticate(token);
+  private async passwordProof(auth: AuthenticatedSession, password: string) {
     if (!auth.principal) throw new AccessError('forbidden');
     await this.reserveAttempt(`password:${auth.principal.name.toLowerCase()}`);
     const snapshot = await this.store.read();
     const principal = snapshot.principals.find((item) => item.id === auth.principal?.id);
     if (!principal?.passwordHash || !(await verifyPassword(password, principal.passwordHash)))
       throw new AccessError('unauthorized');
-    return { auth, principal };
+    return principal;
   }
 
   async reauthenticate(token: string, password: string): Promise<string> {
-    const { auth, principal } = await this.passwordProof(token, password);
+    const auth = await this.authenticate(token);
+    const principal = await this.passwordProof(auth, password);
     return this.store.transact((state) => {
       this.sessionFromState(state, token);
       const current = state.principals.find((item) => item.id === principal.id);
@@ -288,18 +288,15 @@ export class AccessService {
   }
 
   async changePassword(token: string, password: string, currentPassword?: string): Promise<string> {
-    const proof = currentPassword === undefined ? null : await this.passwordProof(token, currentPassword);
-    const auth = proof?.auth ?? (await this.authenticate(token, false, true));
+    const auth = await this.authenticate(token, false, currentPassword === undefined);
+    const proof = currentPassword === undefined ? null : await this.passwordProof(auth, currentPassword);
     if (!auth.principal) throw new AccessError('forbidden');
     const encoded = await hashPassword(password);
     return this.store.transact((state) => {
       const current = this.sessionFromState(state, token, false, proof === null);
       const principal = state.principals.find((item) => item.id === current.principal?.id);
       if (!principal) throw new AccessError('forbidden');
-      if (
-        proof &&
-        (principal.epoch !== proof.principal.epoch || principal.passwordHash !== proof.principal.passwordHash)
-      )
+      if (proof && (principal.epoch !== proof.epoch || principal.passwordHash !== proof.passwordHash))
         throw new AccessError('unauthorized');
       principal.passwordHash = encoded;
       principal.epoch++;
