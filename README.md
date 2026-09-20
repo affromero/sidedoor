@@ -1,242 +1,77 @@
-<div align="center">
+# Sidedoor
 
-# sidedoor
+Shared infrastructure for applications whose users bring their own AI access and run their own server.
 
-**The private side door to your self hosted apps.**
+[![CI](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI)](https://github.com/affromero/sidedoor/actions/workflows/ci.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL)](https://github.com/affromero/sidedoor/actions/workflows/codeql.yml)
+[![Secret scan](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/gitleaks.yml?branch=main&label=secret%20scan)](https://github.com/affromero/sidedoor/actions/workflows/gitleaks.yml)
+[![MIT license](https://img.shields.io/github/license/affromero/sidedoor)](https://github.com/affromero/sidedoor/blob/main/LICENSE)
 
-Open an app you run yourself on your own phone, privately, and install it to the home screen.
-Not a tunnel. Not public by default.
+Sidedoor centralizes provider adapters, credential storage, password and passkey access, setup, local metrics, and background-work infrastructure. Applications supply their product behavior, database connection, and authorization policy. They consume shared changes through versioned dependencies.
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/v/thesidedoor?style=flat-square&logo=npm&color=brightgreen" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/dm/thesidedoor?style=flat-square&color=brightgreen&label=downloads" alt="npm downloads"></a>
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/unpacked-size/thesidedoor?style=flat-square&color=brightgreen" alt="unpacked size"></a>
-  <a href="https://www.npmjs.com/package/thesidedoor"><img src="https://img.shields.io/npm/types/thesidedoor?style=flat-square&logo=typescript" alt="types"></a>
-  <br>
-  <a href="https://github.com/affromero/sidedoor/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI"></a>
-  <a href="https://github.com/affromero/sidedoor/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL"></a>
-  <a href="https://github.com/affromero/sidedoor/actions/workflows/gitleaks.yml"><img src="https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/gitleaks.yml?branch=main&label=gitleaks&logo=github&style=flat-square" alt="Gitleaks secret scan"></a>
-  <a href="https://socket.dev/npm/package/thesidedoor"><img src="https://img.shields.io/badge/Socket-report-1a8cff?style=flat-square&logo=socket.dev&logoColor=white" alt="Socket supply chain report"></a>
-  <a href="https://github.com/affromero/sidedoor/blob/main/.github/dependabot.yml"><img src="https://img.shields.io/badge/min--release--age-7%20days-brightgreen?style=flat-square" alt="minimum release age 7 days"></a>
-  <a href="https://github.com/affromero/sidedoor/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs welcome"></a>
-  <a href="https://github.com/affromero/sidedoor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square" alt="MIT license"></a>
+The connectivity package adds reachable URLs, QR codes, sharing, and home-screen installation.
 
-</div>
+## Packages
 
-```bash
-npm install thesidedoor
-```
+| Package             | Purpose                                                                                    | Runtime                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `thesidedoor-core`  | AI, credentials, access, storage, setup, notifications, execution and metrics              | Node 22 or later                                                                            |
+| `thesidedoor`       | React access/connectivity components, server URL helpers, PWA support and shell reach menu | React 18 or later for React components; other entry points work without React               |
+| `thesidedoor-flock` | Native OS file locking used by local persistence                                           | Transitive optional dependency of core; compiler toolchain required for file-backed storage |
 
-```tsx
-import 'thesidedoor/styles.css';
-import { ConnectPanel } from 'thesidedoor/react';
+Install the packages your app uses. Installing `thesidedoor` does not install the server core. Import documented subpaths, such as `thesidedoor-core/ai` or `thesidedoor/react`.
 
-// Reach URL, QR, share sheet, and add to home screen, in one component.
-<ConnectPanel appName="My App" port="3000" />;
-```
+## Verification
 
-## How it works
+Flight Finder, Papernook, and Sotto use the shared core for provider configuration, access, storage, execution, and telemetry. The package boundary is verified through each application integration and through clean installs of the packed release archives.
 
-```mermaid
-flowchart LR
-    app["Your self hosted app<br/>localhost:3000"]
+CI badges above report the default branch. Candidate package tests exercise packed archives through a temporary registry, including clean installation and native locking. Public npm availability depends on the latest completed release.
 
-    subgraph sd["sidedoor"]
-      server["server · resolveReachUrl"]
-      panel["react · ConnectPanel<br/>URL · QR · share · install"]
-      guide["react · ReachGuide"]
-    end
+## Try the current source
 
-    app --> sd
-
-    subgraph priv["Private · only your devices"]
-      lan["Same Wi-Fi"]
-      ts["Tailscale · recommended"]
-    end
-
-    subgraph pub["Public · opt in"]
-      cf["Cloudflare Tunnel"]
-      dom["Your own domain"]
-    end
-
-    sd --> priv
-    sd -. "opt in" .-> pub
-
-    priv --> phone["Your phone<br/>installed to home screen"]
-    pub -.-> phone
-```
-
-sidedoor resolves the reachable URL, renders the connect UI, and walks a private first reach setup.
-The private methods come first; the public ones are a clearly marked opt in. Either way your phone
-ends up with the app installed to its home screen.
-
-## Why
-
-You self host something and it runs great on your desktop. Getting it onto your phone turns into
-a chore: tunnels, certificates, DNS, a web manifest, a service worker, the iOS Add to Home Screen
-steps. The easy shortcut is to put it on the public internet, which is the one thing you did not
-want for a personal service.
-
-sidedoor packages that flow and makes one deliberate choice the other tools do not: **private by
-default.** Your own network and your own devices come first (LAN, [Tailscale](https://tailscale.com)).
-Exposing the app to the internet is a clearly marked opt in, never the happy path.
-
-It ships the piece nobody packages: resolve the reachable URL, show a QR and a share sheet, walk a
-private first reach setup, and install to the home screen.
-
-## Why now
-
-- Tailscale made a private, encrypted address you reach from anywhere, only from your own devices,
-  a ten minute setup for non experts.
-- [PWAs](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps) grew up. A self hosted
-  app installs to the home screen and feels native, as long as it is served over https, which a
-  tailnet gives you for free with no public exposure.
-- A wave of people are building local first and self hosted AI tools, all hitting the same wall:
-  now get it on my phone, but keep it private.
-
-## Use cases
-
-- **Your local AI tool, on the couch.** You run a local LLM chat or an agent on your desktop or
-  home server. sidedoor gets it onto your phone over Tailscale, installed like an app, without ever
-  putting your prompts on the public internet.
-- **A household app, Netflix style.** A self hosted app your family shares (chores, recipes, a
-  flight tracker). Everyone opens it on their own phone from the home screen, each with their own
-  private login, all pointing at one instance you run.
-- **Homelab dashboards in your pocket.** [Grafana](https://grafana.com), a media server,
-  [Home Assistant](https://www.home-assistant.io), a [Raspberry Pi](https://www.raspberrypi.com)
-  project. Reach them from your phone on your tailnet and pin them to the home screen, no domain
-  and no public exposure.
-- **Demo a side project without going public.** You are building something on a VPS or a Pi. Show
-  it on your phone, or hand a QR to a friend on your WiFi, without buying a domain or opening a port.
-- **You refuse to expose personal services.** You want phone access but not a public URL. sidedoor
-  defaults to private and only shows the public options if you explicitly ask.
-- **You ship a self hosted app and want onboarding that just works.** Drop the ConnectPanel and the
-  install menu into your app so your users get onto their phones without you hand writing the QR,
-  the share sheet, the PWA glue, and the Tailscale instructions.
-
-## Where it fits
-
-Three layers. The ones above and below are mature; the middle is empty, and that is sidedoor.
-
-| Layer           | Examples                                                                                                                                                                                                                                                | sidedoor                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Transport       | [ngrok](https://ngrok.com), [localtunnel](https://github.com/localtunnel/localtunnel), [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/), [Tailscale](https://tailscale.com) ([more](https://github.com/anderspitman/awesome-tunneling)) | Does not replace them. The reach guide recommends and walks them, private ones first. |
-| Install prompt  | [react-ios-pwa-prompt](https://www.npmjs.com/package/react-ios-pwa-prompt), [react-pwa-install](https://www.npmjs.com/package/react-pwa-install)                                                                                                        | Does not reinvent. Keeps a thin hook you can layer those on top of.                   |
-| Onboarding glue | basically nothing                                                                                                                                                                                                                                       | This is sidedoor.                                                                     |
-
-Two contrasts worth naming:
-
-- **Not a tunnel.** Tunnels are about public exposure (show the world). sidedoor is about private
-  access (let me and my household in).
-- **Not [Delta Chat](https://delta.chat) or [webxdc](https://webxdc.org).** webxdc ships serverless
-  mini apps over a chat, so it removes the server. sidedoor is for when you have a real backend
-  (a database, jobs, an LLM) and just need your own devices to reach it. Same self sovereign ethos,
-  opposite mechanism.
-
-## Why not just Tailscale?
-
-Fair question, and the honest answer concedes it: [Tailscale](https://tailscale.com) is excellent,
-and if you are one technical person self hosting for yourself, you may not need sidedoor.
-
-It is a category difference. Tailscale is the transport, a private network and a URL. sidedoor is
-the application layer on top, and Tailscale is its recommended transport, not its competitor (think
-Stripe versus a payments SDK: one is the rails, the other is how your app uses them). Tailscale
-hands you `https://myapp.tail1234.ts.net:3000`. sidedoor is everything after that:
-
-- a QR and a share sheet, so nobody types that URL on a phone;
-- a web manifest and a network first service worker, the bits a PWA needs to install cleanly, which
-  have nothing to do with the network;
-- the Add to Home Screen steps, shown inside your app;
-- resolving the app's own reachable URL to render all of it;
-- a guide that teaches Tailscale, and the LAN and public options, inside your app, for users who
-  have never heard of it.
-
-The deeper point: sidedoor is for the app developer, not the operator. Tailscale is something a user
-installs and configures; you cannot put it inside your product's onboarding, but you can put
-sidedoor. If you self host only for yourself, that gap is small. If you ship a self hosted app to
-other people who are not networking experts, that gap is the whole job.
-
-## API
-
-Four independent entry points. Only `thesidedoor/react` needs React.
-
-**`/react`**
-
-```tsx
-import {
-  ConnectPanel,
-  ReachGuide,
-  QrCode,
-  ShareButtons,
-  useInstallPrompt,
-  clientReachUrl,
-} from 'thesidedoor/react';
-```
-
-`<ConnectPanel>` renders the reach URL, a QR (optional centre `logo`), share buttons, the install
-steps, and the reach guide when the URL is not https.
-
-`<ReachGuide port="3000" />` lists private methods first (same WiFi, then Tailscale as the
-recommended way to reach it privately from anywhere), then fences off the public options
-(Cloudflare, your own domain) behind a clear warning. Pass `privateOnly` to hide the public ones.
-Each method walks the commands for macOS, Linux, or Windows.
-
-**`/server`**
-
-```ts
-import { resolveReachUrl, isPrivateReachUrl } from 'thesidedoor/server';
-
-const url = resolveReachUrl({
-  headers: await headers(), // Next.js: from next/headers
-  configuredUrl: process.env.PUBLIC_BASE_URL, // a saved tailnet or LAN URL wins
-});
-```
-
-Framework agnostic. Accepts a web `Headers` object, a Node `req.headers`, or a getter, honours the
-`x-forwarded-*` headers, and strips trailing slashes.
-
-**`/pwa`**
-
-```ts
-import { buildManifest, registerServiceWorker } from 'thesidedoor/pwa';
-```
-
-Serve `buildManifest({ name: 'My App', icons: [...] })` at `/manifest.webmanifest`, copy
-`thesidedoor/sw.js` into your public root, and call `registerServiceWorker()`. The shipped
-worker is network first and never caches the HTML shell, so installing never serves a stale page
-after a redeploy.
-
-**`/install`**
+Use Node 22 or later and a native compiler toolchain. From this repository:
 
 ```bash
-source node_modules/thesidedoor/install/reach-menu.sh
-sidedoor_reach_menu 3000 "My App"
+npm ci
+npm run check
+npm run test:package-install
 ```
 
-A consent first reach menu for a docker compose installer. The default exposes nothing; private
-options come first.
+The package verifier installs all three archives into an isolated consumer, resolves the native dependency transitively, runs a clean `npm ci`, and exercises the installed exports. It makes no AI-provider requests and needs no provider account.
 
-## Theming
+For an AI request with your own account, build the source and run the [Node example](https://github.com/affromero/sidedoor/blob/main/examples/ai-text.mjs). Supply `SIDEDOOR_AI_PROVIDER`, `SIDEDOOR_AI_MODEL`, and `SIDEDOOR_AI_API_KEY` through your environment:
 
-Override the `--sd-*` custom properties (defaults are a neutral light palette):
-
-```css
-:root {
-  --sd-accent: #16a34a;
-  --sd-bg: #0b0b0c;
-  --sd-surface: #15161a;
-  --sd-text: #eaeaea;
-  --sd-muted: #9aa0a6;
-}
+```bash
+node examples/ai-text.mjs 'Explain why leaves change color.'
 ```
 
-## Status
+The example uses public package imports. It consumes the complete event stream and cancels the provider request on Ctrl+C. Model choice is explicit; Sidedoor does not substitute another provider when a request fails.
 
-Early and intentionally small (about 20 kB packed, one runtime dependency:
-[`qrcode`](https://www.npmjs.com/package/qrcode)). React is an optional peer dependency, so
-`/server`, `/pwa`, and the shell menu carry no React. Built to ESM, CJS, and types with
-[tsup](https://tsup.egoist.dev).
+## Build on Sidedoor
+
+| Need                                                                    | Start here                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generate text, stream events, validate credentials or discover models   | [`thesidedoor-core/ai` and `/ai/providers`](https://github.com/affromero/sidedoor/blob/main/packages/core/README.md)                                                                                                                                                              |
+| Add a provider or understand capability and credential definitions      | [`providers/catalog.ts`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/providers/catalog.ts) and [`ProviderAdapter`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/ai/index.ts)                                                           |
+| Passwords, passkeys, recovery, household profiles or device access      | [`access`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [`access/http`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/http.ts)                                                                                        |
+| Encrypted configuration and per-owner provider keys                     | [`configuration`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/configuration)                                                                                                                                                                                |
+| Local metrics and token accounting                                      | [`observability`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/observability) and [`ai/usage`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/ai/usage.ts)                                                                                |
+| Local filesystem, R2 or S3 storage with migration and deletion journals | [Storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md)                                                                                                                                                                                                  |
+| Setup checks, background work and notification delivery                 | [`setup`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/setup), [`runtime`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/runtime) and [`notifications`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/notifications) |
+| Phone access and home-screen installation                               | [Connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md)                                                                                                                                                                                        |
+
+The [architecture guide](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md) explains package boundaries, request flow, credential ownership, transaction requirements and telemetry. The [storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md) covers local files, R2, S3, migration and durable cleanup.
+
+## How changes reach applications
+
+A provider fix belongs in Sidedoor once. After verification, a release produces versioned npm archives. Each application updates its dependency and lockfile and runs its integration checks. Existing deployments retain their installed version until their operator upgrades them.
+
+This repository is the shared source of truth. A Git submodule is useful for source development, but consumers do not need one to use the packages. App-specific prompts, model defaults, billing policy, content schemas and deployment secrets remain with the app.
+
+## Contributing
+
+Run `npm run check` and `npm run format:check` before submitting changes. Run `npm run test:package-install` for public API, dependency or packaging changes. Tests must exercise observable behavior, including failures and cancellation where relevant. A new catalog entry alone does not establish a working transport; add adapter and installed-consumer coverage for the capabilities it exposes.
 
 ## License
 
-MIT © [Andres Romero](https://afromero.co)
+MIT. See [LICENSE](https://github.com/affromero/sidedoor/blob/main/LICENSE).

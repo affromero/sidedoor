@@ -1,0 +1,236 @@
+{
+  "name": "thesidedoor-core",
+  "version": "0.1.0",
+  "description": "Shared self-hosted application infrastructure",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/affromero/sidedoor.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./runtime/semaphore": {
+      "types": "./dist/runtime/semaphore.d.ts",
+      "import": "./dist/runtime/semaphore.js",
+      "require": "./dist/runtime/semaphore.cjs"
+    },
+    "./providers/transport": {
+      "types": "./dist/providers/transport.d.ts",
+      "import": "./dist/providers/transport.js",
+      "require": "./dist/providers/transport.cjs"
+    },
+    "./configuration/credential-client": {
+      "types": "./dist/configuration/credential-client.d.ts",
+      "import": "./dist/configuration/credential-client.js",
+      "require": "./dist/configuration/credential-client.cjs"
+    },
+    "./configuration/credential-sharing": {
+      "types": "./dist/configuration/credential-sharing.d.ts",
+      "import": "./dist/configuration/credential-sharing.js",
+      "require": "./dist/configuration/credential-sharing.cjs"
+    },
+    "./configuration/owned-credentials": {
+      "types": "./dist/configuration/owned-credentials.d.ts",
+      "import": "./dist/configuration/owned-credentials.js",
+      "require": "./dist/configuration/owned-credentials.cjs"
+    },
+    "./providers/service-validation": {
+      "types": "./dist/providers/service-validation.d.ts",
+      "import": "./dist/providers/service-validation.js",
+      "require": "./dist/providers/service-validation.cjs"
+    },
+    "./providers/catalog": {
+      "types": "./dist/providers/catalog.d.ts",
+      "import": "./dist/providers/catalog.js",
+      "require": "./dist/providers/catalog.cjs"
+    },
+    "./runtime/cli": {
+      "types": "./dist/runtime/cli.d.ts",
+      "import": "./dist/runtime/cli.js",
+      "require": "./dist/runtime/cli.cjs"
+    },
+    "./runtime/outbox": {
+      "types": "./dist/runtime/outbox.d.ts",
+      "import": "./dist/runtime/outbox.js",
+      "require": "./dist/runtime/outbox.cjs"
+    },
+    "./runtime/request": {
+      "types": "./dist/runtime/request.d.ts",
+      "import": "./dist/runtime/request.js",
+      "require": "./dist/runtime/request.cjs"
+    },
+    "./storage/instance": {
+      "types": "./dist/storage/instance.d.ts",
+      "import": "./dist/storage/instance.js",
+      "require": "./dist/storage/instance.cjs"
+    },
+    "./runtime/task-loop": {
+      "types": "./dist/runtime/task-loop.d.ts",
+      "import": "./dist/runtime/task-loop.js",
+      "require": "./dist/runtime/task-loop.cjs"
+    },
+    "./runtime/stream": {
+      "types": "./dist/runtime/stream.d.ts",
+      "import": "./dist/runtime/stream.js",
+      "require": "./dist/runtime/stream.cjs"
+    },
+    "./storage/sql": {
+      "types": "./dist/storage/sql.d.ts",
+      "import": "./dist/storage/sql.js",
+      "require": "./dist/storage/sql.cjs"
+    },
+    "./ai/catalog": {
+      "types": "./dist/ai/catalog.d.ts",
+      "import": "./dist/ai/catalog.js",
+      "require": "./dist/ai/catalog.cjs"
+    },
+    "./ai/connection": {
+      "types": "./dist/ai/connection.d.ts",
+      "import": "./dist/ai/connection.js",
+      "require": "./dist/ai/connection.cjs"
+    },
+    "./ai/usage": {
+      "types": "./dist/ai/usage.d.ts",
+      "import": "./dist/ai/usage.js",
+      "require": "./dist/ai/usage.cjs"
+    },
+    "./observability/pricing": {
+      "types": "./dist/observability/pricing.d.ts",
+      "import": "./dist/observability/pricing.js",
+      "require": "./dist/observability/pricing.cjs"
+    },
+    "./ai/providers": {
+      "types": "./dist/ai/providers.d.ts",
+      "import": "./dist/ai/providers.js",
+      "require": "./dist/ai/providers.cjs"
+    },
+    "./ai/google": {
+      "types": "./dist/ai/google.d.ts",
+      "import": "./dist/ai/google.js",
+      "require": "./dist/ai/google.cjs"
+    },
+    "./ai/tools": {
+      "types": "./dist/ai/tools.d.ts",
+      "import": "./dist/ai/tools.js",
+      "require": "./dist/ai/tools.cjs"
+    },
+    "./ai/openai-responses": {
+      "types": "./dist/ai/openai-responses.d.ts",
+      "import": "./dist/ai/openai-responses.js",
+      "require": "./dist/ai/openai-responses.cjs"
+    },
+    "./ai/anthropic": {
+      "types": "./dist/ai/anthropic.d.ts",
+      "import": "./dist/ai/anthropic.js",
+      "require": "./dist/ai/anthropic.cjs"
+    },
+    "./ai/openai-compatible": {
+      "types": "./dist/ai/openai-compatible.d.ts",
+      "import": "./dist/ai/openai-compatible.js",
+      "require": "./dist/ai/openai-compatible.cjs"
+    },
+    "./runtime/ssh": {
+      "types": "./dist/runtime/ssh.d.ts",
+      "import": "./dist/runtime/ssh.js",
+      "require": "./dist/runtime/ssh.cjs"
+    },
+    "./runtime/process": {
+      "types": "./dist/runtime/process.d.ts",
+      "import": "./dist/runtime/process.js",
+      "require": "./dist/runtime/process.cjs"
+    },
+    "./runtime/environment": {
+      "types": "./dist/runtime/environment.d.ts",
+      "import": "./dist/runtime/environment.js",
+      "require": "./dist/runtime/environment.cjs"
+    },
+    "./storage/optimistic": {
+      "types": "./dist/storage/optimistic.d.ts",
+      "import": "./dist/storage/optimistic.js",
+      "require": "./dist/storage/optimistic.cjs"
+    },
+    "./access/http": {
+      "types": "./dist/access/http.d.ts",
+      "import": "./dist/access/http.js",
+      "require": "./dist/access/http.cjs"
+    },
+    "./setup": {
+      "types": "./dist/setup/index.d.ts",
+      "import": "./dist/setup/index.js",
+      "require": "./dist/setup/index.cjs"
+    },
+    "./notifications": {
+      "types": "./dist/notifications/index.d.ts",
+      "import": "./dist/notifications/index.js",
+      "require": "./dist/notifications/index.cjs"
+    },
+    "./configuration": {
+      "types": "./dist/configuration/index.d.ts",
+      "import": "./dist/configuration/index.js",
+      "require": "./dist/configuration/index.cjs"
+    },
+    "./observability/store": {
+      "types": "./dist/observability/store.d.ts",
+      "import": "./dist/observability/store.js",
+      "require": "./dist/observability/store.cjs"
+    },
+    "./ai": {
+      "types": "./dist/ai/index.d.ts",
+      "import": "./dist/ai/index.js",
+      "require": "./dist/ai/index.cjs"
+    },
+    "./ai/browser": {
+      "types": "./dist/ai/browser.d.ts",
+      "import": "./dist/ai/browser.js",
+      "require": "./dist/ai/browser.cjs"
+    },
+    "./access": {
+      "types": "./dist/access/index.d.ts",
+      "import": "./dist/access/index.js",
+      "require": "./dist/access/index.cjs"
+    },
+    "./access/browser": {
+      "types": "./dist/access/browser.d.ts",
+      "import": "./dist/access/browser.js",
+      "require": "./dist/access/browser.cjs"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js",
+      "require": "./dist/storage/index.cjs"
+    },
+    "./observability": {
+      "types": "./dist/observability/index.d.ts",
+      "import": "./dist/observability/index.js",
+      "require": "./dist/observability/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:artifact": "node tests/artifact.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "@google/genai": "2.21.0",
+    "@simplewebauthn/browser": "^13.2.2",
+    "@simplewebauthn/server": "13.3.3",
+    "openai": "^7.10.0",
+    "zod": "4.3.6"
+  },
+  "optionalDependencies": {
+    "thesidedoor-flock": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.11"
+  }
+}

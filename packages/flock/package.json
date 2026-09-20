@@ -1,0 +1,30 @@
+{
+  "name": "thesidedoor-flock",
+  "version": "0.1.0",
+  "description": "Sidedoor's fs-ext binding with synchronous file locking across workers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/affromero/sidedoor.git",
+    "directory": "packages/flock"
+  },
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "fs-ext.cc",
+    "binding.gyp",
+    "index.cjs",
+    "index.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "dependencies": {
+    "nan": "2.28.0"
+  }
+}
