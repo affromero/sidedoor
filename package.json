@@ -1,7 +1,7 @@
 {
   "name": "thesidedoor",
-  "version": "0.1.0",
-  "description": "The private side door to your self hosted apps. Reach a self hosted web app from your own phone and devices, privately (LAN / Tailscale), install it to the home screen, with a guided, consent first reach setup. Not a tunnel, not public by default.",
+  "version": "0.2.0",
+  "description": "React access and private connectivity components for self-hosted AI applications. Server infrastructure is available in thesidedoor-core.",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",
   "repository": {
@@ -12,7 +12,11 @@
     "url": "https://github.com/affromero/sidedoor/issues"
   },
   "keywords": [
+    "ai",
+    "byok",
     "self-hosted",
+    "passkeys",
+    "webauthn",
     "pwa",
     "qrcode",
     "tailscale",
@@ -26,6 +30,9 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
+  "workspaces": [
+    "packages/*"
+  ],
   "files": [
     "dist",
     "src/styles.css",
@@ -57,18 +64,21 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && npm run build --workspaces --if-present",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run && npm run test --workspaces --if-present",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "test:package-install": "node scripts/verify-package-install.mjs",
+    "test:release": "node --test scripts/publish-packages.test.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run test:release && npm run build",
     "prepare": "husky"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.2.2",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
@@ -112,5 +122,8 @@
     "*.{js,json,css,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "esbuild": "0.28.2"
   }
 }

@@ -1,15 +1,7 @@
 name: Release
 
-# Publishes thesidedoor to npm on every v* tag. The version published is
-# whatever is in package.json at the tagged commit, so bump the version and
-# regenerate the lockfile before tagging (the create-release flow does this).
-#
-# Supply chain: publishes with npm provenance, a signed attestation linking the
-# tarball to this repo, commit, and workflow run. Provenance needs id-token:
-# write, a public repo, and the npm registry configured by setup-node.
-#
-# NPM_TOKEN must be an automation or granular publish token for thesidedoor.
-# GitHub Release notes are created separately by the release flow, not here.
+# A v* tag releases the exact package archives verified below.
+# NPM_TOKEN must authorize all three packages. No token is available to verification.
 
 on:
   push:
@@ -19,8 +11,33 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sidedoor-npm-release
+  cancel-in-progress: false
+
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run format:check
+      - run: npm run test:package-install -- --retain-artifacts "$RUNNER_TEMP/release-packages"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-packages-${{ github.sha }}
+          path: ${{ runner.temp }}/release-packages
+          if-no-files-found: error
+          retention-days: 90
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,12 +48,12 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test
-      - run: npm run build
-      - run: npm publish --provenance --access public
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-packages-${{ github.sha }}
+          path: ${{ runner.temp }}/release-packages
+      - run: node scripts/publish-packages.mjs "$RUNNER_TEMP/release-packages" "$RELEASE_TAG"
         env:
+          RELEASE_TAG: ${{ github.ref_name }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: node scripts/verify-public-install.mjs "$RUNNER_TEMP/release-packages"

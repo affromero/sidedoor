@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { QrCode } from './QrCode.js';
 import { ShareButtons, type ShareChannel } from './ShareButtons.js';
 import { ReachGuide } from './ReachGuide.js';
-import { useInstallPrompt, clientReachUrl } from './useInstallPrompt.js';
+import { useInstallPrompt, clientReachUrl } from '../pwa/useInstallPrompt.js';
 
 export interface ConnectPanelProps {
   /** The reach URL to hand out. Defaults to the browser's current origin. */
