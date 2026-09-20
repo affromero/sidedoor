@@ -165,8 +165,16 @@ try {
     assert.ok(downloads.has(name), `Candidate was not fetched from the test registry: ${name}`);
   }
   await rm(join(directory, 'node_modules'), { recursive: true, force: true });
-  await run('npm', ['ci', ...common]);
-  for (const name of packages.keys()) await access(join(directory, 'node_modules', name, 'package.json'));
+  const cleanInstallOutput = await run('npm', ['ci', '--foreground-scripts', ...common], directory, {
+    stream: true,
+  });
+  for (const name of packages.keys()) {
+    try {
+      await access(join(directory, 'node_modules', name, 'package.json'));
+    } catch (error) {
+      throw new Error(`${name} is missing after clean installation:\n${cleanInstallOutput}`, { cause: error });
+    }
+  }
   await writeFile(join(directory, 'ai-text.mjs'), await readFile(join(root, 'examples/ai-text.mjs')));
   await writeFile(
     join(directory, 'verify-ai-example.mjs'),
