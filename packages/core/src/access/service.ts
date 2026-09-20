@@ -23,7 +23,10 @@ export function isAccessError(error: unknown): error is AccessError {
     ['unauthorized', 'forbidden', 'invalid', 'rate_limited', 'conflict'].includes((error as AccessError).code)
   );
 }
-export const tokenHash = (token: string): string => createHash('sha256').update(token).digest('hex');
+export const tokenHash = (token: string): string =>
+  // Tokens are 256-bit random credentials. Passwords use the password module's configured scrypt parameters.
+  // lgtm[js/insufficient-password-hash]
+  createHash('sha256').update(token).digest('hex');
 export const rateLimitKey = (scope: string): string => `rate:${scope}`;
 export const newToken = (): string => randomBytes(32).toString('base64url');
 
