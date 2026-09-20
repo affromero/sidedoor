@@ -24,6 +24,7 @@ export function isAccessError(error: unknown): error is AccessError {
   );
 }
 export const tokenHash = (token: string): string => createHash('sha256').update(token).digest('hex');
+export const rateLimitKey = (scope: string): string => `rate:${scope}`;
 export const newToken = (): string => randomBytes(32).toString('base64url');
 
 /** Apply a mode transition inside an already-authorized storage transaction. */
@@ -203,7 +204,7 @@ export class AccessService {
   async reserveAttempt(scope: string): Promise<void> {
     await this.store.transact((state) => {
       state.failures = state.failures.filter((item) => item.expiresAt > this.now());
-      const key = tokenHash(scope);
+      const key = rateLimitKey(scope);
       const current = state.failures.find((item) => item.key === key);
       if (current && current.count >= 10) throw new AccessError('rate_limited');
       if (!current && state.failures.length >= 1000) throw new AccessError('rate_limited');
@@ -233,7 +234,7 @@ export class AccessService {
         current.passwordHash = replacement;
         current.epoch++;
       }
-      state.failures = state.failures.filter((item) => item.key !== tokenHash(`password:${normalized}`));
+      state.failures = state.failures.filter((item) => item.key !== rateLimitKey(`password:${normalized}`));
       return this.issueSession(state, current.id, deviceName);
     });
   }
@@ -281,7 +282,7 @@ export class AccessService {
         throw new AccessError('unauthorized');
       state.sessions = state.sessions.filter((item) => item.id !== auth.session.id);
       state.failures = state.failures.filter(
-        (item) => item.key !== tokenHash(`password:${principal.name.toLowerCase()}`),
+        (item) => item.key !== rateLimitKey(`password:${principal.name.toLowerCase()}`),
       );
       return this.issueSession(state, principal.id, auth.session.name);
     });
@@ -306,7 +307,7 @@ export class AccessService {
         (item) => item.principalId !== principal.id || item.kind !== 'recover',
       );
       state.failures = state.failures.filter(
-        (item) => item.key !== tokenHash(`password:${principal.name.toLowerCase()}`),
+        (item) => item.key !== rateLimitKey(`password:${principal.name.toLowerCase()}`),
       );
       return this.issueSession(state, principal.id, auth.session.name);
     });
@@ -341,7 +342,7 @@ export class AccessService {
         state.householdEpoch++;
         state.sessions = state.sessions.filter((item) => item.principalId !== null);
       }
-      state.failures = state.failures.filter((item) => item.key !== tokenHash('household'));
+      state.failures = state.failures.filter((item) => item.key !== rateLimitKey('household'));
       return this.issueSession(state, null, deviceName);
     });
   }
@@ -377,7 +378,7 @@ export class AccessService {
     )
       return existingToken;
     state.failures = state.failures.filter((attempt) => attempt.expiresAt > now);
-    const key = tokenHash('open-household');
+    const key = rateLimitKey('open-household');
     const attempts = state.failures.find((attempt) => attempt.key === key);
     if (attempts && attempts.count >= 120) throw new AccessError('rate_limited');
     if (attempts) attempts.count++;

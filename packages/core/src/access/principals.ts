@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { AccessError, AccessService, tokenHash } from './service';
+import { AccessError, AccessService, rateLimitKey } from './service';
 import { hashPassword } from './password';
 import { hasAccessErrorBrand } from './error-brand';
 import type { AccessState, Principal } from './state';
@@ -54,7 +54,7 @@ function revokePrincipalAccess(state: AccessState, principal: Principal, remove:
   state.invitations = state.invitations.filter((invitation) => invitation.issuerPrincipalId !== principal.id);
   state.recoveryCodes = state.recoveryCodes.filter((code) => code.principalId !== principal.id);
   state.failures = state.failures.filter(
-    (failure) => failure.key !== tokenHash(`password:${principal.name.toLowerCase()}`),
+    (failure) => failure.key !== rateLimitKey(`password:${principal.name.toLowerCase()}`),
   );
   if (remove) state.passkeys = state.passkeys.filter((passkey) => passkey.principalId !== principal.id);
 }
