@@ -90,6 +90,11 @@ try {
       integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
     });
   }
+  assert.equal(
+    new Set([...packages.values()].map((candidate) => candidate.manifest.version)).size,
+    1,
+    'All package versions must match',
+  );
   server = createServer((request, response) => {
     let path;
     let packageName;

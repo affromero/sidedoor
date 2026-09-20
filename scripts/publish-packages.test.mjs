@@ -111,3 +111,25 @@ test('refuses a mismatched release tag before contacting the publisher', async (
   await assert.rejects(publishPackages(f.directory, 'v2.0.0', f), /tag must match/);
   assert.deepEqual(f.writes, []);
 });
+
+test('refuses package versions that do not match each other', async (t) => {
+  const f = await fixture(t);
+  const core = f.artifacts.find((item) => item.name === 'thesidedoor-core');
+  assert.ok(core);
+  const manifest = {
+    name: core.name,
+    version: '1.0.1',
+    repository: { url: 'git+https://github.com/affromero/sidedoor.git' },
+    optionalDependencies: { 'thesidedoor-flock': '1.0.0' },
+  };
+  await writeFile(join(f.directory, 'package/package.json'), JSON.stringify(manifest));
+  core.version = manifest.version;
+  core.filename = `${core.name}-${core.version}.tgz`;
+  await execute('tar', ['-czf', join(f.directory, core.filename), '-C', f.directory, 'package']);
+  core.integrity = `sha512-${createHash('sha512')
+    .update(await readFile(join(f.directory, core.filename)))
+    .digest('base64')}`;
+  await writeFile(join(f.directory, 'artifacts.json'), JSON.stringify(f.artifacts));
+  await assert.rejects(publishPackages(f.directory, 'v1.0.0', f), /package versions must match/i);
+  assert.deepEqual(f.writes, []);
+});

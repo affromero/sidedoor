@@ -1,6 +1,6 @@
 # Release operations
 
-A `v*` tag starts the release workflow. The tag must match the root package version. Core and native packages have their own versions, and core pins the native version it was tested with. Bump every package whose archive changed and regenerate the lockfile before tagging.
+A `v*` tag starts the release workflow. The tag and all three package versions must match. Core pins the native package at that same version. Update every package manifest and regenerate the lockfile before tagging.
 
 The verification job has no npm publishing credential. It runs the code checks, release-orchestration tests, formatting and installed-consumer tests. It retains the exact verified archives and their SHA512 integrity values for 90 days.
 

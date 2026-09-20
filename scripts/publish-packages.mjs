@@ -83,6 +83,10 @@ export async function publishPackages(
     candidates.push({ ...candidate, path, manifest });
   }
   const [native, core, ui] = candidates;
+  assert.ok(
+    candidates.every((candidate) => candidate.version === ui.version),
+    'All package versions must match the release version',
+  );
   assert.equal(tag, `v${ui.version}`, 'Release tag must match the root package version');
   assert.equal(
     core.manifest.optionalDependencies?.[native.name],
