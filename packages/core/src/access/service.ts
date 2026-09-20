@@ -134,7 +134,9 @@ export class AccessService {
         throw new AccessError('conflict');
       const raw = newToken();
       state.tokens = state.tokens.filter(
-        (item) => item.expiresAt > this.now() && item.kind !== (principalId ? 'recover' : 'claim'),
+        (item) =>
+          item.expiresAt > this.now() &&
+          (principalId ? item.kind !== 'recover' || item.principalId !== principalId : item.kind !== 'claim'),
       );
       state.tokens.push({
         id: tokenHash(raw),

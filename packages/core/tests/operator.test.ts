@@ -75,6 +75,24 @@ it('issues a usable local claim and lists identities without credentials', async
   await expect(executeAccessCommand(access, ['recover', 'Owner'])).rejects.toMatchObject({ code: 'invalid' });
 });
 
+it('keeps independent operator recovery codes usable for each account', async () => {
+  const { access, store } = await fixture();
+  await store.transact((state) => {
+    state.principals.push(
+      { id: 'first', name: 'First', role: 'owner', passwordHash: null, epoch: 0, createdAt: 1 },
+      { id: 'second', name: 'Second', role: 'owner', passwordHash: null, epoch: 0, createdAt: 1 },
+    );
+  });
+  const first = await access.issueOperatorToken('first');
+  const second = await access.issueOperatorToken('second');
+  expect(
+    (await access.authenticate(await access.recover(first, 'first recovered password'))).principal?.id,
+  ).toBe('first');
+  expect(
+    (await access.authenticate(await access.recover(second, 'second recovered password'))).principal?.id,
+  ).toBe('second');
+});
+
 it('issues a scoped device credential only through an application-provided local operator service', async () => {
   const { access } = await fixture();
   const session = await access.claimOwner(
