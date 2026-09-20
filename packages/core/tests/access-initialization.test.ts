@@ -91,7 +91,7 @@ describe('access initialization', () => {
       ).sort(),
     ).toEqual([false, true]);
     const token = await service.login('admin', 'old-pass');
-    await service.changePassword(token, 'replacement password');
+    await service.rotatePrincipalCredential(token, 'replacement password');
     expect(await initializeAccess(store, 'v1', input)).toBe(false);
     await expect(service.login('admin', 'old-pass')).rejects.toMatchObject({ code: 'unauthorized' });
     expect(

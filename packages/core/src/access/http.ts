@@ -348,7 +348,7 @@ export function createAccessHandler(options: AccessHttpOptions) {
       if (action === 'change-password') {
         const input = z.object({ password: text, currentPassword: passwordInput.optional() }).parse(body);
         return await signedIn(
-          await options.access.changePassword(token, input.password, input.currentPassword),
+          await options.access.rotatePrincipalCredential(token, input.password, input.currentPassword),
         );
       }
       if (action === 'household') {

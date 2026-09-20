@@ -46,15 +46,17 @@ describe('instance access', () => {
   it('changes a password with current-password proof without leaving a replacement session after failure', async () => {
     const { service, store, owner } = await fixture();
     const sessions = (await store.read()).sessions;
-    await expect(service.changePassword(owner, 'replacement password', 'wrong')).rejects.toMatchObject({
+    await expect(
+      service.rotatePrincipalCredential(owner, 'replacement password', 'wrong'),
+    ).rejects.toMatchObject({
       code: 'unauthorized',
     });
     expect((await store.read()).sessions).toEqual(sessions);
     await expect(
-      service.changePassword(owner, 'short', 'correct horse battery staple'),
+      service.rotatePrincipalCredential(owner, 'short', 'correct horse battery staple'),
     ).rejects.toBeInstanceOf(Error);
     expect((await store.read()).sessions).toEqual(sessions);
-    const updated = await service.changePassword(
+    const updated = await service.rotatePrincipalCredential(
       owner,
       'replacement password',
       'correct horse battery staple',
@@ -82,7 +84,7 @@ describe('instance access', () => {
     const phone = await service.login('Owner', 'correct horse battery staple', 'Phone');
     const verified = await service.reauthenticate(owner, 'correct horse battery staple');
     await expect(service.authenticate(owner)).rejects.toMatchObject({ code: 'unauthorized' });
-    const updated = await service.changePassword(verified, 'new owner password for testing');
+    const updated = await service.rotatePrincipalCredential(verified, 'new owner password for testing');
     await expect(service.authenticate(phone)).rejects.toMatchObject({ code: 'unauthorized' });
     await expect(service.authenticate(verified)).rejects.toMatchObject({ code: 'unauthorized' });
     expect((await service.authenticate(updated)).principal?.role).toBe('owner');

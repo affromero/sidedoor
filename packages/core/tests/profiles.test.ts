@@ -357,7 +357,7 @@ describe('household profiles', () => {
     expect(await profiles.selected(guest)).toEqual({ id: 'profile', name: 'Household member' });
     expect((await access.authenticate(guest)).principal).toBeNull();
     await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
-    await expect(access.changePassword(guest, 'replacement password')).rejects.toMatchObject({
+    await expect(access.rotatePrincipalCredential(guest, 'replacement password')).rejects.toMatchObject({
       code: 'forbidden',
     });
     await expect(profiles.select(guest, 'dormant')).rejects.toMatchObject({ code: 'forbidden' });

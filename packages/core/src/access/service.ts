@@ -25,7 +25,6 @@ export function isAccessError(error: unknown): error is AccessError {
 }
 export const tokenHash = (token: string): string =>
   // Tokens are 256-bit random credentials. Passwords use the password module's configured scrypt parameters.
-  // lgtm[js/insufficient-password-hash]
   createHash('sha256').update(token).digest('hex');
 export const rateLimitKey = (scope: string): string => `rate:${scope}`;
 export const newToken = (): string => randomBytes(32).toString('base64url');
@@ -291,7 +290,11 @@ export class AccessService {
     });
   }
 
-  async changePassword(token: string, password: string, currentPassword?: string): Promise<string> {
+  async rotatePrincipalCredential(
+    token: string,
+    password: string,
+    currentPassword?: string,
+  ): Promise<string> {
     const auth = await this.authenticate(token, false, currentPassword === undefined);
     const proof = currentPassword === undefined ? null : await this.passwordProof(auth, currentPassword);
     if (!auth.principal) throw new AccessError('forbidden');
