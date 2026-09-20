@@ -80,7 +80,7 @@ export async function initializeAccess(
     ...principals.map((principal) => principal.passwordHash),
     input.householdPasswordHash,
   ]) {
-    if (encoded && !/^scrypt:32768:[a-f0-9]{32}:[a-f0-9]{128}$/.test(encoded))
+    if (encoded && !/^scrypt:(?:32768|imported):[a-f0-9]{32}:[a-f0-9]{128}$/.test(encoded))
       throw new AccessError('invalid', 'Invalid password hash format');
   }
   return store.transact((state) => {

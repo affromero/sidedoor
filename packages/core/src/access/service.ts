@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { StateStore } from '../storage/index';
-import { hashPassword, verifyPassword } from './password';
+import { hashConfiguredPassword, hashPassword, passwordHashNeedsUpgrade, verifyPassword } from './password';
 import type { AccessState, Principal, Session } from './state';
 import { ACCESS_ERROR_BRAND, hasAccessErrorBrand } from './error-brand';
 import { PrincipalManagement } from './principals';
@@ -222,10 +222,15 @@ export class AccessService {
     const encoded = principal?.passwordHash ?? `scrypt:32768:${'0'.repeat(32)}:${'0'.repeat(128)}`;
     const valid = await verifyPassword(password, encoded);
     if (!principal || !valid) throw new AccessError('unauthorized');
+    const replacement = passwordHashNeedsUpgrade(encoded) ? await hashConfiguredPassword(password) : encoded;
     return this.store.transact((state) => {
       const current = state.principals.find((item) => item.id === principal.id);
       if (!current || current.passwordHash !== encoded || current.epoch !== principal.epoch)
         throw new AccessError('unauthorized');
+      if (replacement !== encoded) {
+        current.passwordHash = replacement;
+        current.epoch++;
+      }
       state.failures = state.failures.filter((item) => item.key !== tokenHash(`password:${normalized}`));
       return this.issueSession(state, current.id, deviceName);
     });
@@ -321,6 +326,9 @@ export class AccessService {
       !(await verifyPassword(password, snapshot.householdPasswordHash))
     )
       throw new AccessError('unauthorized');
+    const replacement = passwordHashNeedsUpgrade(snapshot.householdPasswordHash)
+      ? await hashConfiguredPassword(password)
+      : snapshot.householdPasswordHash;
     return this.store.transact((state) => {
       if (state.mode !== 'household' || state.householdPasswordHash !== snapshot.householdPasswordHash)
         throw new AccessError('unauthorized');
@@ -329,6 +337,11 @@ export class AccessService {
         (state.householdEpoch !== policy.householdEpoch || state.policyEpoch !== policy.policyEpoch)
       )
         throw new AccessError('unauthorized');
+      if (replacement !== snapshot.householdPasswordHash) {
+        state.householdPasswordHash = replacement;
+        state.householdEpoch++;
+        state.sessions = state.sessions.filter((item) => item.principalId !== null);
+      }
       state.failures = state.failures.filter((item) => item.key !== tokenHash('household'));
       return this.issueSession(state, null, deviceName);
     });

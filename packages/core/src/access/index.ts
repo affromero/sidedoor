@@ -22,7 +22,14 @@ export type { HouseholdProfile } from './profiles';
 export type { PasskeyOptions } from './passkeys';
 export { accessStateSchema, initialAccessState } from './state';
 export type { AccessState, Principal, Session, Passkey, Challenge } from './state';
-export { hashPassword, hashConfiguredPassword, verifyPassword, PASSWORD_INPUT_MAX_BYTES } from './password';
+export {
+  hashPassword,
+  hashConfiguredPassword,
+  importPasswordHash,
+  passwordHashNeedsUpgrade,
+  verifyPassword,
+  PASSWORD_INPUT_MAX_BYTES,
+} from './password';
 export { DeviceService } from './devices';
 export type { DeviceOptions, DeviceIdentity } from './devices';
 export { InvitationService } from './invitations';

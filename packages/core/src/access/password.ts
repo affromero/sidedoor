@@ -10,6 +10,8 @@ export class PasswordPolicyError extends Error {
 let activeDerivations = 0;
 // Worst-case JSON escaping stays below the HTTP handler's 64 KB body cap.
 export const PASSWORD_INPUT_MAX_BYTES = 8192;
+const CURRENT_HASH = /^scrypt:32768:([a-f0-9]{32}):([a-f0-9]{128})$/;
+const IMPORTED_HASH = /^scrypt:imported:([a-f0-9]{32}):([a-f0-9]{128})$/;
 
 function derive(password: string, salt: string, cost: number): Promise<Buffer> {
   // Bound memory and CPU independently of attacker-controlled account names.
@@ -40,9 +42,26 @@ export async function hashConfiguredPassword(password: string): Promise<string> 
   return `scrypt:32768:${salt}:${(await derive(password, salt, 32768)).toString('hex')}`;
 }
 
+/** Mark an unversioned scrypt record for bounded verification and immediate rewrite. */
+export function importPasswordHash(encoded: string): string {
+  const match = /^([a-f0-9]{32}):([a-f0-9]{128})$/.exec(encoded);
+  if (!match?.[1] || !match[2]) throw new PasswordPolicyError('Invalid imported password hash');
+  return `scrypt:imported:${match[1]}:${match[2]}`;
+}
+
+export function passwordHashNeedsUpgrade(encoded: string): boolean {
+  return IMPORTED_HASH.test(encoded);
+}
+
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   if (Buffer.byteLength(password) > PASSWORD_INPUT_MAX_BYTES) return false;
-  const match = /^scrypt:(32768):([a-f0-9]{32}):([a-f0-9]{128})$/.exec(encoded);
-  if (!match?.[2] || !match[3]) return false;
-  return timingSafeEqual(await derive(password, match[2], 32768), Buffer.from(match[3], 'hex'));
+  const current = CURRENT_HASH.exec(encoded);
+  const imported = current ? null : IMPORTED_HASH.exec(encoded);
+  const match = current ?? imported;
+  if (!match?.[1] || !match[2]) return false;
+  const expected = Buffer.from(match[2], 'hex');
+  for (const cost of imported ? [32768, 16384] : [32768]) {
+    if (timingSafeEqual(await derive(password, match[1], cost), expected)) return true;
+  }
+  return false;
 }

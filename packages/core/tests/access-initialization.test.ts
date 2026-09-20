@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   AccessService,
   accessStateSchema,
+  importPasswordHash,
   initialAccessState,
   initializeAccess,
   type Principal,
@@ -51,6 +52,16 @@ function principal(
   };
 }
 
+function unversionedPassword(password: string, cost: 16384 | 32768): string {
+  const salt = 'fedcba9876543210fedcba9876543210';
+  return `${salt}:${scryptSync(password, salt, 64, {
+    N: cost,
+    r: 8,
+    p: 1,
+    maxmem: 128 * 1024 * 1024,
+  }).toString('hex')}`;
+}
+
 describe('access initialization', () => {
   it('preserves account IDs, admin roles and supplied passwords without granting passwordless owner access', async () => {
     const { store, service } = await fixture();
@@ -86,6 +97,39 @@ describe('access initialization', () => {
     expect(
       (await service.authenticate(await service.login('admin', 'replacement password'))).principal?.id,
     ).toBe('owner');
+  });
+  it('rewrites imported password records after their first successful use', async () => {
+    const { store, service } = await fixture();
+    const principals = [
+      {
+        ...principal('earlier', 'Earlier', null, 'owner'),
+        passwordHash: importPasswordHash(unversionedPassword('earlier password', 16384)),
+      },
+      {
+        ...principal('current', 'Current', null, 'owner'),
+        passwordHash: importPasswordHash(unversionedPassword('current password', 32768)),
+      },
+    ];
+    const householdPasswordHash = importPasswordHash(unversionedPassword('household password', 16384));
+    await initializeAccess(store, 'imported-passwords', {
+      mode: 'household',
+      principals,
+      householdPasswordHash,
+    });
+    const policy = await store.read();
+    await service.enterHousehold('household password', 'Imported household', {
+      householdEpoch: policy.householdEpoch,
+      policyEpoch: policy.policyEpoch,
+    });
+    await service.login('Earlier', 'earlier password');
+    await service.login('Current', 'current password');
+    const state = await store.read();
+    expect(state.householdPasswordHash).toMatch(/^scrypt:32768:/);
+    expect(state.principals.map((entry) => entry.passwordHash)).toEqual([
+      expect.stringMatching(/^scrypt:32768:/),
+      expect.stringMatching(/^scrypt:32768:/),
+    ]);
+    expect(state.principals.map((entry) => entry.epoch)).toEqual([1, 1]);
   });
   it('rejects setup sentinels without partially creating accounts', async () => {
     const { store } = await fixture();
