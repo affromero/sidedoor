@@ -236,7 +236,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:artifact": "node tests/artifact.mjs"
+    "test:artifact": "node tests/misc/artifact.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

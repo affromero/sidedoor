@@ -5,23 +5,23 @@ export {
   newToken,
   tokenHash,
   transitionAccessMode,
-} from './service';
-export type { AccessOptions, AuthenticatedSession } from './service';
-export { PasskeyService } from './passkeys';
-export { PasskeyManagement } from './passkey-management';
-export { HouseholdProfileService } from './profiles';
-export { HouseholdProfileManagement } from './profile-management';
+} from './core/service';
+export type { AccessOptions, AuthenticatedSession } from './core/service';
+export { PasskeyService } from './passkey/passkeys';
+export { PasskeyManagement } from './passkey/passkey-management';
+export { HouseholdProfileService } from './identity/profiles';
+export { HouseholdProfileManagement } from './identity/profile-management';
 export type {
   ProfileManagerCredential,
   ProfileManagementOptions,
   PreparedProfileCreation,
   PreparedProfileUpdate,
   PreparedProfileRemoval,
-} from './profile-management';
-export type { HouseholdProfile } from './profiles';
-export type { PasskeyOptions } from './passkeys';
-export { accessStateSchema, initialAccessState } from './state';
-export type { AccessState, Principal, Session, Passkey, Challenge } from './state';
+} from './identity/profile-management';
+export type { HouseholdProfile } from './identity/profiles';
+export type { PasskeyOptions } from './passkey/passkeys';
+export { accessStateSchema, initialAccessState } from './core/state';
+export type { AccessState, Principal, Session, Passkey, Challenge } from './core/state';
 export {
   hashPassword,
   hashConfiguredPassword,
@@ -29,13 +29,13 @@ export {
   passwordHashNeedsUpgrade,
   verifyPassword,
   PASSWORD_INPUT_MAX_BYTES,
-} from './password';
-export { DeviceService } from './devices';
-export type { DeviceOptions, DeviceIdentity } from './devices';
-export { InvitationService } from './invitations';
-export { PrincipalManagement, removePrincipalFromState } from './principals';
-export type { PrincipalMutation, PreparedPrincipalMutation } from './principals';
-export { initializeAccess, initializeHouseholdDevices } from './initialization';
-export type { InitialAccess, InitialHouseholdDevice } from './initialization';
-export { executeAccessCommand, parseAccessCommand } from './operator';
-export type { AccessOperatorOptions } from './operator';
+} from './core/password';
+export { DeviceService } from './admission/devices';
+export type { DeviceOptions, DeviceIdentity } from './admission/devices';
+export { InvitationService } from './admission/invitations';
+export { PrincipalManagement, removePrincipalFromState } from './identity/principals';
+export type { PrincipalMutation, PreparedPrincipalMutation } from './identity/principals';
+export { initializeAccess, initializeHouseholdDevices } from './core/initialization';
+export type { InitialAccess, InitialHouseholdDevice } from './core/initialization';
+export { executeAccessCommand, parseAccessCommand } from './identity/operator';
+export type { AccessOperatorOptions } from './identity/operator';

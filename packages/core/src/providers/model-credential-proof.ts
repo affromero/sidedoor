@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ProviderReadiness } from '../ai/browser';
-import { abortable } from '../runtime/abort';
-import { readRequestBytes } from '../runtime/request';
+import { abortable } from '../runtime/process/abort';
+import { readRequestBytes } from '../runtime/process/request';
 
 const models = z.array(z.object({ id: z.string().min(1) }));
 const compatiblePage = z.object({ object: z.literal('list'), data: models });

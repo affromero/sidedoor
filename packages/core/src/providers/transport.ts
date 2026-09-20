@@ -1,4 +1,4 @@
-import { abortable } from '../runtime/abort';
+import { abortable } from '../runtime/process/abort';
 
 export interface ProviderRequestRule {
   method: string;

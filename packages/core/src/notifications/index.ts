@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { StateStore } from '../storage/index';
 import type { MetricCollector } from '../observability/index';
-import { abortable } from '../runtime/abort';
+import { abortable } from '../runtime/process/abort';
 
 const messageSchema = z.object({
   title: z.string().max(300),

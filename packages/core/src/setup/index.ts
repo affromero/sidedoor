@@ -1,5 +1,5 @@
 import type { Capability, ProviderReadiness } from '../ai/browser';
-import { abortable } from '../runtime/abort';
+import { abortable } from '../runtime/process/abort';
 
 export interface SetupRequirement {
   id: string;

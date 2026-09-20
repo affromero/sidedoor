@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { abortable } from '../runtime/abort';
-import { interruptibleStream } from '../runtime/stream';
+import { abortable } from '../runtime/process/abort';
+import { interruptibleStream } from '../runtime/process/stream';
 import {
   ProviderError,
   ProviderRegistry,

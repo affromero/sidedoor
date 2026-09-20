@@ -1,25 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { open, readFile, rename, unlink } from 'node:fs/promises';
-export { localEncryptionKey } from './key';
-export { StorageInstanceControl } from './instance';
-export { writeReferenceSet, ReferenceSetError, isReferenceSetError } from './write-set';
+export { localEncryptionKey } from './registry/key';
+export { StorageInstanceControl } from './sql/instance';
+export { writeReferenceSet, ReferenceSetError, isReferenceSetError } from './execution/write-set';
 export type {
   ReferenceSetAdmission,
   ReferenceSetWriter,
   ReferenceSetArtifact,
   ReferenceSetOptions,
-} from './write-set';
+} from './execution/write-set';
 export {
   StorageReferenceRegistry,
   StorageReferenceConsumerMismatchError,
   prepareStorageReference,
   prepareStorageReferenceClaims,
-} from './reference-registry';
-export type { PreparedStorageReference } from './reference-registry';
-export { StorageRelocationRegistry, type StorageRelocationInput } from './relocation';
-export type { StorageInstanceScope } from './instance';
-export { LocalStorageCleanup } from './local-cleanup';
-export { openExecutionLocation, type ExecutionLocation } from './execution-location';
+} from './registry/reference-registry';
+export type { PreparedStorageReference } from './registry/reference-registry';
+export { StorageRelocationRegistry, type StorageRelocationInput } from './local/relocation';
+export type { StorageInstanceScope } from './sql/instance';
+export { LocalStorageCleanup } from './cleanup/backends/local-cleanup';
+export { openExecutionLocation, type ExecutionLocation } from './execution/execution-location';
 export {
   planExecutionWorkspace,
   createExecutionWorkspace,
@@ -27,50 +27,50 @@ export {
   removeExecutionWorkspace,
   type ExecutionWorkspacePlan,
   type ExecutionWorkspace,
-} from './execution-workspace';
-export { LocalStorageReader } from './local-reader';
+} from './execution/execution-workspace';
+export { LocalStorageReader } from './local/local-reader';
 export {
   copyOwnedBytesToFile,
   StorageReadCleanupError,
   type OwnedByteReader,
   type StorageCopyContent,
-} from './owned-copy';
-export { copyOwnedReadableToFile, withOwnedReadables } from './owned-readable';
-export { LocalStorageWriter, LocalStorageWriteError } from './local-writer';
-export { StorageCleanupJournal } from './cleanup-journal';
-export { StorageCleanupAttribution } from './cleanup-attribution';
+} from './local/owned-copy';
+export { copyOwnedReadableToFile, withOwnedReadables } from './local/owned-readable';
+export { LocalStorageWriter, LocalStorageWriteError } from './local/local-writer';
+export { StorageCleanupJournal } from './cleanup/cleanup-journal';
+export { StorageCleanupAttribution } from './cleanup/cleanup-attribution';
 export {
   openPostgresDedicatedConnection,
   PostgresConnectionCleanupError,
   type PostgresClientPort,
-} from './postgres-connection';
+} from './sql/postgres-connection';
 export {
   acquirePostgresBackendLock,
   type DedicatedBackendConnection,
   type BackendLock,
-} from './backend-lock';
+} from './registry/backend-lock';
 export {
   CleanupExecutionJournal,
   type CleanupExecutionBinding,
   type CleanupExecutionRecord,
   type CleanupExecutionEvidence,
-} from './cleanup-execution';
-export { cleanupStorageProbe, type ProbeCleanupOptions } from './probe-cleanup';
+} from './cleanup/cleanup-execution';
+export { cleanupStorageProbe, type ProbeCleanupOptions } from './cleanup/backends/probe-cleanup';
 export {
   runStorageCleanup,
   type StorageCleanupBackendPort,
   type StorageCleanupCollectionPage,
   type StorageCleanupRunnerOptions,
-} from './cleanup-runner';
+} from './cleanup/cleanup-runner';
 export { runStorageProbe, type StorageProbeOptions, type StorageProbePort } from './probe';
 export { StorageProbeCleanupError } from './probe-errors';
-export type { StorageManifestInput, StorageManifestResolution } from './cleanup-manifests';
+export type { StorageManifestInput, StorageManifestResolution } from './cleanup/cleanup-manifests';
 export {
   prepareStorageManifestPages,
   StorageManifestLimitError,
   isStorageManifestLimitError,
-} from './cleanup-manifests';
-export { prepareStorageCleanup } from './cleanup-state';
+} from './cleanup/cleanup-manifests';
+export { prepareStorageCleanup } from './cleanup/cleanup-state';
 export type {
   StorageCleanupJob,
   StorageCleanupCollector,
@@ -78,37 +78,41 @@ export type {
   StorageCleanupTarget,
   StorageCleanupTargetInput,
   StorageDeletionTicket,
-} from './cleanup-state';
-export type { LocalCleanupIdentity } from './local-cleanup';
+} from './cleanup/cleanup-state';
+export type { LocalCleanupIdentity } from './cleanup/backends/local-cleanup';
 export {
   StorageBackendRegistry,
   prepareStorageBackend,
   storageCleanupDescriptorSchema,
-} from './backend-registry';
-export type { PreparedStorageBackend, StorageCleanupDescriptor } from './backend-registry';
-export { ObjectStorageCleanup } from './object-cleanup';
-export type { MultipartCleanupPort, MultipartCleanupPage } from './multipart-cleanup';
-export type { ObjectCleanupPort, ObjectCleanupPage, ObjectVersionCleanupPage } from './object-cleanup';
-export { StorageWriteJournal, prepareStorageWrite, prepareStorageTombstone } from './write-journal';
-export type { StorageWriteIntent, StorageSubjectTombstone } from './write-journal';
+} from './registry/backend-registry';
+export type { PreparedStorageBackend, StorageCleanupDescriptor } from './registry/backend-registry';
+export { ObjectStorageCleanup } from './cleanup/backends/object-cleanup';
+export type { MultipartCleanupPort, MultipartCleanupPage } from './cleanup/backends/multipart-cleanup';
+export type {
+  ObjectCleanupPort,
+  ObjectCleanupPage,
+  ObjectVersionCleanupPage,
+} from './cleanup/backends/object-cleanup';
+export { StorageWriteJournal, prepareStorageWrite, prepareStorageTombstone } from './execution/write-journal';
+export type { StorageWriteIntent, StorageSubjectTombstone } from './execution/write-journal';
 export {
   normalizeStorageReference,
   validateStorageKey,
   storageBackendBinding,
   StorageReferenceError,
-} from './references';
-export type { StorageBackendLocation, StorageReferenceOptions } from './references';
+} from './registry/references';
+export type { StorageBackendLocation, StorageReferenceOptions } from './registry/references';
 import { dirname, resolve } from 'node:path';
-import { withFileLock } from './lock';
+import { withFileLock } from './registry/lock';
 export {
   acquireFileLock,
   acquireFileLockSync,
   withFileLock,
   withSharedFileLockSync,
   FileLockBusyError,
-} from './lock';
-export type { FileLockOptions } from './lock';
-export { syncDirectory } from './durability';
+} from './registry/lock';
+export type { FileLockOptions } from './registry/lock';
+export { syncDirectory } from './execution/durability';
 
 /** Transactions serialize reads and writes; callbacks must be synchronous and side-effect free. */
 export interface StateStore<State> {

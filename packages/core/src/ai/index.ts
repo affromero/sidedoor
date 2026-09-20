@@ -9,8 +9,8 @@ import {
 } from 'node:crypto';
 import type { MetricCollector } from '../observability/index';
 import { z } from 'zod';
-import { abortable } from '../runtime/abort';
-import { interruptibleStream } from '../runtime/stream';
+import { abortable } from '../runtime/process/abort';
+import { interruptibleStream } from '../runtime/process/stream';
 import { GenerationUsageError, reportedUsageFromGenerationError } from './usage';
 import type {
   Capability,

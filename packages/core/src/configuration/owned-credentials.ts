@@ -9,7 +9,7 @@ import {
 } from './index';
 import type { CredentialValidation } from '../ai/browser';
 import type { CredentialValues } from '../ai/index';
-import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../storage/sql';
+import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../storage/sql/sql';
 
 const identity = z.string().min(1).max(200);
 const revision = z.uuid();

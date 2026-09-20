@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { StorageBackendRegistry, prepareStorageBackend } from './backend-registry';
-import { StorageCleanupJournal } from './cleanup-journal';
-import { prepareStorageCleanup } from './cleanup-state';
-import { StorageInstanceControl } from './instance';
-import { cleanupStorageProbe } from './probe-cleanup';
-import type { SqlExecutor } from './sql';
-import { StorageWriteJournal, prepareStorageWrite } from './write-journal';
-import type { ReferenceSetAdmission, ReferenceSetWriter } from './write-set';
-import { CleanupExecutionJournal } from './cleanup-execution';
+import { StorageBackendRegistry, prepareStorageBackend } from './registry/backend-registry';
+import { StorageCleanupJournal } from './cleanup/cleanup-journal';
+import { prepareStorageCleanup } from './cleanup/cleanup-state';
+import { StorageInstanceControl } from './sql/instance';
+import { cleanupStorageProbe } from './cleanup/backends/probe-cleanup';
+import type { SqlExecutor } from './sql/sql';
+import { StorageWriteJournal, prepareStorageWrite } from './execution/write-journal';
+import type { ReferenceSetAdmission, ReferenceSetWriter } from './execution/write-set';
+import { CleanupExecutionJournal } from './cleanup/cleanup-execution';
 import { StorageProbeCleanupError } from './probe-errors';
 
 export interface StorageProbePort extends ReferenceSetWriter {

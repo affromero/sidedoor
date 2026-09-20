@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../storage/sql';
+import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../storage/sql/sql';
 
 const identity = z.string().min(1).max(200);
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
