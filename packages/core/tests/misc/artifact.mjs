@@ -6,7 +6,7 @@ import process from 'node:process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const directory = await mkdtemp(join(tmpdir(), 'sidedoor-artifact-'));
 function run(command, args, cwd = directory) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 180_000 });
