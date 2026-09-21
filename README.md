@@ -17,14 +17,14 @@ It is an embedded library. There is no central Sidedoor service, hosted control 
 
 ## What it provides
 
-| Area         | Included behavior                                                                                                                                              |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AI providers | OpenAI, Anthropic, Google, OpenAI-compatible endpoints, model discovery, capability checks, streaming, tools, usage, cancellation, and admitted HTTP transport |
-| Credentials  | Encrypted, revisioned credentials per owner, explicit household sharing, validation tickets, endpoint binding, and lost-response reconciliation                |
-| Access       | Passwords, passkeys, sessions, recovery, invitations, profiles, device credentials, owner claim, and browser-safe HTTP schemas                                 |
-| Storage      | Local filesystem, Cloudflare R2, generic S3, immutable references, backend migration, multipart cleanup, deletion journals, and recovery evidence              |
-| Work         | Transactional outbox records, durable execution journals, task loops, Redis capacity leases, local processes, SSH execution, and retained cleanup state        |
-| Operations   | Setup checks, notifications, private connectivity, QR codes, PWA helpers, local metrics, token accounting, and versioned pricing                               |
+| Area         | Included behavior                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI providers | OpenAI, Anthropic, Google, OpenAI-compatible endpoints, Claude Code and Codex subscriptions, model discovery, streaming, tools, usage, and cancellation |
+| Credentials  | Encrypted, revisioned credentials per owner, explicit household sharing, validation tickets, endpoint binding, and lost-response reconciliation         |
+| Access       | Passwords, passkeys, sessions, recovery, invitations, profiles, device credentials, owner claim, and browser-safe HTTP schemas                          |
+| Storage      | Local filesystem, Cloudflare R2, generic S3, immutable references, backend migration, multipart cleanup, deletion journals, and recovery evidence       |
+| Work         | Transactional outbox records, durable execution journals, task loops, Redis capacity leases, local processes, SSH execution, and retained cleanup state |
+| Operations   | Setup checks, notifications, private connectivity, QR codes, PWA helpers, local metrics, token accounting, and versioned pricing                        |
 
 ## Architecture
 
@@ -139,6 +139,30 @@ SIDEDOOR_AI_API_KEY=... \
 node examples/ai-text.mjs 'Explain why leaves change color.'
 ```
 
+## Use Claude Code or Codex subscriptions
+
+Sidedoor treats Claude Code and Codex as keyless CLI providers. They use the user's existing CLI subscription login instead of an API key. `thesidedoor-core/runtime/cli` decodes each command's structured output, returns answer text, rejects incomplete or conflicting terminal records, and reports the usage fields emitted by the CLI.
+
+The application owns the process boundary. It installs the CLI, mounts its login directory, builds the command arguments, scrubs unrelated environment secrets, and persists refreshed OAuth files atomically. This keeps subscription credentials under the operator's control and lets each application choose local or SSH execution without copying authentication into Sidedoor's credential store.
+
+```ts
+import { ClaudeOutputDecoder, CodexOutputDecoder } from 'thesidedoor-core/runtime/cli';
+
+const decoder = provider === 'codex' ? new CodexOutputDecoder() : new ClaudeOutputDecoder();
+for await (const chunk of commandStdout) {
+  for (const event of decoder.push(chunk)) {
+    if (event.type === 'text') response.write(event.text);
+    if (event.type === 'usage') recordUsage(event.usage);
+    if (event.type === 'failure') throw new Error(event.message);
+  }
+}
+for (const event of decoder.finish()) {
+  if (event.type === 'usage') recordUsage(event.usage);
+}
+```
+
+The [CLI subscription contract tests](https://github.com/affromero/sidedoor/blob/main/packages/core/tests/runtime/process/cli-subscription-contract.test.ts) cover both provider identities, the absence of API-key fields, answer extraction, terminal completion, and token accounting. Application integration tests remain responsible for their command arguments, credential mounts, refresh writeback, and SSH policy.
+
 ## Add password and passkey access
 
 The core access service owns password verification, WebAuthn passkeys, sessions, recovery, invitations, profiles, and device credentials. Your application supplies the relying-party origin, HTTP mounting, database transaction, owner identity, and authorization rules.
@@ -194,19 +218,20 @@ Token accounting records measured usage with a pricing version. Missing provider
 
 ## Integration map
 
-| Goal                                                  | Reference                                                                                                                                                                                                 |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand package and application boundaries         | [Architecture](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md)                                                                                                                      |
-| Configure AI and add a provider                       | [Core package guide](https://github.com/affromero/sidedoor/blob/main/packages/core/README.md), [provider catalog](https://github.com/affromero/sidedoor/blob/main/packages/core/src/providers/catalog.ts) |
-| Mount passwords, passkeys, sessions, and recovery     | [Access modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access), [HTTP schemas](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts)    |
-| Store credentials per owner and share them explicitly | [Configuration modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/configuration)                                                                                                  |
-| Use local files, R2, or S3                            | [Storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md)                                                                                                                          |
-| Run durable jobs and bounded workers                  | [Runtime modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/runtime)                                                                                                              |
-| Add local metrics and token accounting                | [Observability modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/observability)                                                                                                  |
-| Add QR codes, private access, and PWA installation    | [Connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md)                                                                                                                |
-| Publish verified package archives                     | [Release operations](https://github.com/affromero/sidedoor/blob/main/docs/release.md)                                                                                                                     |
-| Report a vulnerability                                | [Security policy](https://github.com/affromero/sidedoor/security/policy)                                                                                                                                  |
-| Review shipped changes                                | [Changelog](https://github.com/affromero/sidedoor/blob/main/CHANGELOG.md)                                                                                                                                 |
+| Goal                                                  | Reference                                                                                                                                                                                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Understand package and application boundaries         | [Architecture](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md)                                                                                                                                                             |
+| Configure AI and add a provider                       | [Core package guide](https://github.com/affromero/sidedoor/blob/main/packages/core/README.md), [provider catalog](https://github.com/affromero/sidedoor/blob/main/packages/core/src/providers/catalog.ts)                                        |
+| Use Claude Code or Codex subscriptions                | [CLI runtime](https://github.com/affromero/sidedoor/blob/main/packages/core/src/runtime/process/cli.ts), [contract tests](https://github.com/affromero/sidedoor/blob/main/packages/core/tests/runtime/process/cli-subscription-contract.test.ts) |
+| Mount passwords, passkeys, sessions, and recovery     | [Access modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access), [HTTP schemas](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts)                                           |
+| Store credentials per owner and share them explicitly | [Configuration modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/configuration)                                                                                                                                         |
+| Use local files, R2, or S3                            | [Storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md)                                                                                                                                                                 |
+| Run durable jobs and bounded workers                  | [Runtime modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/runtime)                                                                                                                                                     |
+| Add local metrics and token accounting                | [Observability modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/observability)                                                                                                                                         |
+| Add QR codes, private access, and PWA installation    | [Connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md)                                                                                                                                                       |
+| Publish verified package archives                     | [Release operations](https://github.com/affromero/sidedoor/blob/main/docs/release.md)                                                                                                                                                            |
+| Report a vulnerability                                | [Security policy](https://github.com/affromero/sidedoor/security/policy)                                                                                                                                                                         |
+| Review shipped changes                                | [Changelog](https://github.com/affromero/sidedoor/blob/main/CHANGELOG.md)                                                                                                                                                                        |
 
 ## Distribution
 
