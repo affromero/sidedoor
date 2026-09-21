@@ -78,7 +78,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^13.2.2",
+    "@simplewebauthn/browser": "^14.0.0",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
@@ -95,7 +95,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "@testing-library/dom": "^10.4.0",
+    "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.1.0",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.17",

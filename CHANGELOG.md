@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-20
+
+### Added
+
+- Shared AI provider registry and transports for OpenAI, Anthropic, Google,
+  OpenAI-compatible endpoints, local processes, and remote execution.
+- Passwords, WebAuthn passkeys, sessions, recovery, invitations, profiles,
+  household credential sharing, and device access.
+- Local filesystem, Cloudflare R2, and generic S3 storage with immutable
+  references, verified migration, cleanup journals, and recovery evidence.
+- Transactional outbox work, execution journals, Redis capacity leases,
+  notifications, setup checks, local metrics, and token accounting.
+- Clean archive installation checks for ESM, CommonJS, native file locking,
+  React exports, AI streaming, credential rejection, and cancellation.
+
+### Changed
+
+- All packages now release in version lockstep from one verified artifact set.
+- Updated supported AI and WebAuthn SDKs while retaining the Node 20 UI test
+  matrix and Node 22 server runtime.
+- Expanded the README with architecture diagrams, integration guides, package
+  badges, application references, and release details.
+
 ## [0.1.0] - 2026-06-11
 
 Initial release. The private side door to your self hosted apps, extracted from
@@ -28,3 +51,4 @@ the connect flow in [Flight Finder](https://github.com/affromero/flight-finder).
   to ESM, CJS, and types.
 
 [0.1.0]: https://github.com/affromero/sidedoor/releases/tag/v0.1.0
+[0.2.0]: https://github.com/affromero/sidedoor/releases/tag/v0.2.0
