@@ -32,19 +32,19 @@ It is an embedded library. There is no central Sidedoor service, hosted control 
 flowchart TB
   User[User or household member]
   App[Application routes, UI, prompts, and policy]
-  UI[thesidedoor<br/>React access, connectivity, and PWA]
+  UI["thesidedoor: React access, connectivity, and PWA"]
   Core[thesidedoor-core]
   Access[Access and credentials]
   AI[Provider registry and admitted transports]
   Work[Outbox, execution, processes, and SSH]
-  Store[Storage references and cleanup]
+  Storage[Storage references and cleanup]
   Observe[Local metrics and usage]
   DB[(Application database)]
   Files[(Local filesystem)]
   Objects[(R2 or S3)]
   Redis[(Redis)]
   Models[Configured AI providers or local runtimes]
-  Flock[thesidedoor-flock<br/>native file locking]
+  Flock["thesidedoor-flock: native file locking"]
 
   User --> App
   App --> UI
@@ -52,14 +52,14 @@ flowchart TB
   Core --> Access
   Core --> AI
   Core --> Work
-  Core --> Store
+  Core --> Storage
   Core --> Observe
   Access --> DB
   Work --> DB
   Work --> Redis
-  Store --> DB
-  Store --> Files
-  Store --> Objects
+  Storage --> DB
+  Storage --> Files
+  Storage --> Objects
   Files --> Flock
   AI --> Models
 ```
