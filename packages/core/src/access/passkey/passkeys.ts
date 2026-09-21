@@ -7,7 +7,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import { AccessError, AccessService, newToken, tokenHash } from '../core/service';
-import type { Challenge, Passkey } from '../core/state';
+import { passkeySchema, type Challenge, type Passkey } from '../core/state';
 import { PasskeyManagement } from './passkey-management';
 
 export interface PasskeyOptions {
@@ -139,7 +139,7 @@ export class PasskeyService extends PasskeyManagement {
         principalId: principal.id,
         publicKey: Buffer.from(info.credential.publicKey).toString('base64url'),
         counter: info.credential.counter,
-        transports: info.credential.transports ?? [],
+        transports: passkeySchema.shape.transports.parse(info.credential.transports ?? []),
         name: name.trim().slice(0, 100) || 'Passkey',
         createdAt: this.access.now(),
         backedUp: info.credentialBackedUp,

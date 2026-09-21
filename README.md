@@ -1,77 +1,250 @@
 # Sidedoor
 
-Reusable backend and access infrastructure for open-source applications whose users bring their own AI access and run their own server.
+Shared TypeScript infrastructure for open-source, self-hosted AI applications. Users bring their own provider access and operators keep control of the server, database, files, credentials, and telemetry.
 
+[![npm: thesidedoor-core](https://img.shields.io/npm/v/thesidedoor-core?label=thesidedoor-core&logo=npm)](https://www.npmjs.com/package/thesidedoor-core)
+[![npm: thesidedoor](https://img.shields.io/npm/v/thesidedoor?label=thesidedoor&logo=npm)](https://www.npmjs.com/package/thesidedoor)
+[![npm: thesidedoor-flock](https://img.shields.io/npm/v/thesidedoor-flock?label=thesidedoor-flock&logo=npm)](https://www.npmjs.com/package/thesidedoor-flock)
 [![CI](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/ci.yml?branch=main&label=CI)](https://github.com/affromero/sidedoor/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/codeql.yml?branch=main&label=CodeQL)](https://github.com/affromero/sidedoor/actions/workflows/codeql.yml)
-[![Secret scan](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/gitleaks.yml?branch=main&label=secret%20scan)](https://github.com/affromero/sidedoor/actions/workflows/gitleaks.yml)
+[![Gitleaks](https://img.shields.io/github/actions/workflow/status/affromero/sidedoor/gitleaks.yml?branch=main&label=Gitleaks)](https://github.com/affromero/sidedoor/actions/workflows/gitleaks.yml)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![MIT license](https://img.shields.io/github/license/affromero/sidedoor)](https://github.com/affromero/sidedoor/blob/main/LICENSE)
 
-Sidedoor centralizes provider adapters, credential storage, password and passkey access, setup, local metrics, and background-work infrastructure. Applications supply their product behavior, database connection, and authorization policy. They consume shared changes through versioned dependencies.
+Sidedoor puts the backend pieces shared by self-hosted AI products in versioned npm packages. A provider addition, passkey fix, storage safety change, or telemetry update can ship once and reach each application through a dependency update.
 
-The connectivity package adds reachable URLs, QR codes, sharing, and home-screen installation.
+It is an embedded library. There is no central Sidedoor service, hosted control plane, or required account. Applications retain their product behavior, prompts, authorization policy, database, and deployment.
+
+## What it provides
+
+| Area         | Included behavior                                                                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI providers | OpenAI, Anthropic, Google, OpenAI-compatible endpoints, model discovery, capability checks, streaming, tools, usage, cancellation, and admitted HTTP transport |
+| Credentials  | Encrypted, revisioned credentials per owner, explicit household sharing, validation tickets, endpoint binding, and lost-response reconciliation                |
+| Access       | Passwords, passkeys, sessions, recovery, invitations, profiles, device credentials, owner claim, and browser-safe HTTP schemas                                 |
+| Storage      | Local filesystem, Cloudflare R2, generic S3, immutable references, backend migration, multipart cleanup, deletion journals, and recovery evidence              |
+| Work         | Transactional outbox records, durable execution journals, task loops, Redis capacity leases, local processes, SSH execution, and retained cleanup state        |
+| Operations   | Setup checks, notifications, private connectivity, QR codes, PWA helpers, local metrics, token accounting, and versioned pricing                               |
+
+## Architecture
+
+```mermaid
+flowchart TB
+  User[User or household member]
+  App[Application routes, UI, prompts, and policy]
+  UI[thesidedoor<br/>React access, connectivity, and PWA]
+  Core[thesidedoor-core]
+  Access[Access and credentials]
+  AI[Provider registry and admitted transports]
+  Work[Outbox, execution, processes, and SSH]
+  Store[Storage references and cleanup]
+  Observe[Local metrics and usage]
+  DB[(Application database)]
+  Files[(Local filesystem)]
+  Objects[(R2 or S3)]
+  Redis[(Redis)]
+  Models[Configured AI providers or local runtimes]
+  Flock[thesidedoor-flock<br/>native file locking]
+
+  User --> App
+  App --> UI
+  App --> Core
+  Core --> Access
+  Core --> AI
+  Core --> Work
+  Core --> Store
+  Core --> Observe
+  Access --> DB
+  Work --> DB
+  Work --> Redis
+  Store --> DB
+  Store --> Files
+  Store --> Objects
+  Files --> Flock
+  AI --> Models
+```
+
+The application authenticates and authorizes each operation. Sidedoor captures the selected provider, credential revision, storage destination, execution identity, and other evidence needed to finish or recover that operation safely.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant App as Application
+  participant Tx as Serializable transaction
+  participant SD as Sidedoor
+  participant Provider as Selected provider
+
+  User->>App: Start an AI operation
+  App->>Tx: Check authority and capture configuration
+  Tx-->>App: Provider, model, credential revision, execution ID
+  App->>SD: Generate with captured inputs and AbortSignal
+  SD->>App: Recheck admission
+  SD->>Provider: Authenticated request
+  Provider-->>SD: Event stream or explicit error
+  SD-->>App: Normalized events and usage
+  App->>Tx: Commit result and durable settlement
+  Tx-->>App: Completed or recovery required
+```
+
+Read the [architecture guide](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md) for authority boundaries, credential replacement, durable jobs, storage lifecycle, and telemetry rules.
 
 ## Packages
 
-| Package             | Purpose                                                                                    | Runtime                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `thesidedoor-core`  | AI, credentials, access, storage, setup, notifications, execution and metrics              | Node 22 or later                                                                            |
-| `thesidedoor`       | React access/connectivity components, server URL helpers, PWA support and shell reach menu | React 18 or later for React components; other entry points work without React               |
-| `thesidedoor-flock` | Native OS file locking used by local persistence                                           | Transitive optional dependency of core; compiler toolchain required for file-backed storage |
+| Package                                                                | Install when you need                                                                         | Runtime                                                                      |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`thesidedoor-core`](https://www.npmjs.com/package/thesidedoor-core)   | AI, access, credentials, storage, jobs, notifications, setup, metrics, processes, or SSH      | Node.js 22 or later                                                          |
+| [`thesidedoor`](https://www.npmjs.com/package/thesidedoor)             | React access UI, private connection guides, URL resolution, QR codes, sharing, or PWA helpers | React 18 or later for React exports                                          |
+| [`thesidedoor-flock`](https://www.npmjs.com/package/thesidedoor-flock) | Native OS locking for file-backed state                                                       | Installed as an optional core dependency; native compiler toolchain required |
 
-Install the packages your app uses. Installing `thesidedoor` does not install the server core. Import documented subpaths, such as `thesidedoor-core/ai` or `thesidedoor/react`.
+All packages use the same version. Install the parts your application imports:
 
-## Verification
+```bash
+npm install thesidedoor-core thesidedoor
+```
 
-Flight Finder, Papernook, and Sotto use the shared core for provider configuration, access, storage, execution, and telemetry. The package boundary is verified through each application integration and through clean installs of the packed release archives.
+## Start with an AI request
 
-CI badges above report the default branch. Candidate package tests exercise packed archives through a temporary registry, including clean installation and native locking. Public npm availability depends on the latest completed release.
+```ts
+import { ProviderRegistry } from 'thesidedoor-core/ai';
+import { apiProviders } from 'thesidedoor-core/ai/providers';
 
-## Try the current source
+const registry = new ProviderRegistry({
+  providers: apiProviders(),
+  credentials: {
+    async resolve(provider) {
+      const credential = await loadAuthorizedCredential(provider);
+      return { apiKey: credential.apiKey, baseUrl: credential.baseUrl };
+    },
+  },
+});
 
-Use Node 22 or later and a native compiler toolchain. From this repository:
+for await (const event of registry.generate({
+  provider: selectedProvider,
+  model: selectedModel,
+  messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+  signal: request.signal,
+})) {
+  if (event.type === 'text') response.write(event.text);
+}
+```
+
+The caller resolves credentials after authorization and keeps them on the server. The selected backend returns its own error if it fails. Applications make any alternative provider choice explicitly.
+
+Run the complete [Node example](https://github.com/affromero/sidedoor/blob/main/examples/ai-text.mjs) against your provider:
+
+```bash
+SIDEDOOR_AI_PROVIDER=openai \
+SIDEDOOR_AI_MODEL=gpt-5-mini \
+SIDEDOOR_AI_API_KEY=... \
+node examples/ai-text.mjs 'Explain why leaves change color.'
+```
+
+## Add password and passkey access
+
+The core access service owns password verification, WebAuthn passkeys, sessions, recovery, invitations, profiles, and device credentials. Your application supplies the relying-party origin, HTTP mounting, database transaction, owner identity, and authorization rules.
+
+```mermaid
+flowchart LR
+  Claim[One-time owner claim] --> Password[Password access]
+  Password --> Passkey[Enroll Apple, Google, Windows, or security-key passkey]
+  Passkey --> Session[Bound session]
+  Session --> Invite[Invite household profiles or devices]
+  Session --> Recovery[Rotate credentials or recover access]
+```
+
+Passkeys use the platform WebAuthn implementation, including Apple Passwords and iCloud Keychain where the browser and device support them. Password access remains available for initial claim and recovery according to application policy. Start with the [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and the [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts).
+
+## Choose storage
+
+Local filesystem storage is a production option alongside R2 and S3. Every backend uses the same ownership, migration, and deletion model.
+
+```mermaid
+flowchart LR
+  Write[Authorized write intent] --> Registry[Immutable backend registration]
+  Registry --> Local[(Persistent local volume)]
+  Registry --> R2[(Cloudflare R2)]
+  Registry --> S3[(Amazon S3 or compatible)]
+  Local --> Reference[Owned application reference]
+  R2 --> Reference
+  S3 --> Reference
+  Reference --> Migration[Verified migration]
+  Reference --> Cleanup[Journaled deletion and absence check]
+```
+
+A backend change affects new writes. Existing references retain their recorded physical destination until a verified migration replaces them. See the [storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md).
+
+## Add connection and install UI
+
+```tsx
+import 'thesidedoor/styles.css';
+import { ConnectPanel } from 'thesidedoor/react';
+
+export function ConnectPage() {
+  return <ConnectPanel appName="My App" port="3000" />;
+}
+```
+
+`ConnectPanel` renders a reachable URL, QR code, share controls, and home-screen instructions. It supports LAN, Tailscale, and an explicitly configured public endpoint. Importing Sidedoor does not create a tunnel or expose a port. See the [connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md) and [React example](https://github.com/affromero/sidedoor/blob/main/examples/react-usage.tsx).
+
+## Metrics and privacy
+
+Sidedoor records metrics through an explicit local sink. It starts no hosted exporter and sends no telemetry to the Sidedoor project. The event schema excludes prompt content, credentials, URLs, and raw exception messages. Applications choose identifiers, retention, persistence, and any export destination.
+
+Token accounting records measured usage with a pricing version. Missing provider usage stays unknown. The library does not invent cost data.
+
+## Integration map
+
+| Goal                                                  | Reference                                                                                                                                                                                                 |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Understand package and application boundaries         | [Architecture](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md)                                                                                                                      |
+| Configure AI and add a provider                       | [Core package guide](https://github.com/affromero/sidedoor/blob/main/packages/core/README.md), [provider catalog](https://github.com/affromero/sidedoor/blob/main/packages/core/src/providers/catalog.ts) |
+| Mount passwords, passkeys, sessions, and recovery     | [Access modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access), [HTTP schemas](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts)    |
+| Store credentials per owner and share them explicitly | [Configuration modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/configuration)                                                                                                  |
+| Use local files, R2, or S3                            | [Storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md)                                                                                                                          |
+| Run durable jobs and bounded workers                  | [Runtime modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/runtime)                                                                                                              |
+| Add local metrics and token accounting                | [Observability modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/observability)                                                                                                  |
+| Add QR codes, private access, and PWA installation    | [Connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md)                                                                                                                |
+| Publish verified package archives                     | [Release operations](https://github.com/affromero/sidedoor/blob/main/docs/release.md)                                                                                                                     |
+| Report a vulnerability                                | [Security policy](https://github.com/affromero/sidedoor/security/policy)                                                                                                                                  |
+| Review shipped changes                                | [Changelog](https://github.com/affromero/sidedoor/blob/main/CHANGELOG.md)                                                                                                                                 |
+
+## Distribution
+
+```mermaid
+flowchart LR
+  Change[Sidedoor change] --> CI[Node 20 and 22 CI, CodeQL, Gitleaks]
+  CI --> Pack[Build exact npm archives]
+  Pack --> Install[Clean install, ESM, CommonJS, native lock, and AI fixture checks]
+  Install --> Publish[npm release with provenance]
+  Publish --> Apps[Application dependency updates]
+  Apps --> AppCI[Application tests, builds, migrations, and deployment checks]
+```
+
+Consumers use versioned npm dependencies rather than a Git submodule. Their lockfiles record the exact archive integrity. A consumer stays on its installed version until its operator upgrades it.
+
+Release verification packs all three packages, serves those exact bytes through a temporary registry, installs them in a clean consumer, compiles the native locking dependency, checks ESM and CommonJS exports, exercises real file locking, and runs an AI request against a local fixture. The release workflow publishes the same retained archives in dependency order and verifies a fresh public install. See [release operations](https://github.com/affromero/sidedoor/blob/main/docs/release.md).
+
+## Develop
+
+Use Node.js 22 or later and a native compiler toolchain:
 
 ```bash
 npm ci
 npm run check
+npm run format:check
 npm run test:package-install
 ```
 
-The package verifier installs all three archives into an isolated consumer, resolves the native dependency transitively, runs a clean `npm ci`, and exercises the installed exports. It makes no AI-provider requests and needs no provider account.
+`npm run check` runs lint, strict type checks, unit and integration tests, release tests, and all package builds. The installed pre-commit hook rejects source files over 1,000 lines and new source files in directories that already contain 10 files.
 
-For an AI request with your own account, build the source and run the [Node example](https://github.com/affromero/sidedoor/blob/main/examples/ai-text.mjs). Supply `SIDEDOOR_AI_PROVIDER`, `SIDEDOOR_AI_MODEL`, and `SIDEDOOR_AI_API_KEY` through your environment:
+Provider contributions must implement a working adapter for every declared capability. Include HTTP or process-boundary tests for success, rejection, timeouts, cancellation, and cleanup. Storage, access, credential, and execution changes must preserve authority and recovery evidence across lost responses.
 
-```bash
-node examples/ai-text.mjs 'Explain why leaves change color.'
-```
+## Used by
 
-The example uses public package imports. It consumes the complete event stream and cancels the provider request on Ctrl+C. Model choice is explicit; Sidedoor does not substitute another provider when a request fails.
+Sidedoor is the shared backend boundary for [Flight Finder](https://github.com/affromero/flight-finder), [Papernook](https://github.com/affromero/papernook), and [Sotto](https://github.com/affromero/Sotto). Their integration suites verify the package against flight search, document research, and language-learning workloads.
 
-## Build on Sidedoor
+## Security and license
 
-| Need                                                                    | Start here                                                                                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Generate text, stream events, validate credentials or discover models   | [`thesidedoor-core/ai` and `/ai/providers`](https://github.com/affromero/sidedoor/blob/main/packages/core/README.md)                                                                                                                                                              |
-| Add a provider or understand capability and credential definitions      | [`providers/catalog.ts`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/providers/catalog.ts) and [`ProviderAdapter`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/ai/index.ts)                                                           |
-| Passwords, passkeys, recovery, household profiles or device access      | [`access`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [`access/http`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts)                                                                              |
-| Encrypted configuration and per-owner provider keys                     | [`configuration`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/configuration)                                                                                                                                                                                |
-| Local metrics and token accounting                                      | [`observability`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/observability) and [`ai/usage`](https://github.com/affromero/sidedoor/blob/main/packages/core/src/ai/usage.ts)                                                                                |
-| Local filesystem, R2 or S3 storage with migration and deletion journals | [Storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md)                                                                                                                                                                                                  |
-| Setup checks, background work and notification delivery                 | [`setup`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/setup), [`runtime`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/runtime) and [`notifications`](https://github.com/affromero/sidedoor/tree/main/packages/core/src/notifications) |
-| Phone access and home-screen installation                               | [Connectivity guide](https://github.com/affromero/sidedoor/blob/main/docs/connectivity.md)                                                                                                                                                                                        |
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/affromero/sidedoor/security/advisories/new) or follow the [security policy](https://github.com/affromero/sidedoor/security/policy). Do not open a public issue for a suspected vulnerability.
 
-The [architecture guide](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md) explains package boundaries, request flow, credential ownership, transaction requirements and telemetry. The [storage guide](https://github.com/affromero/sidedoor/blob/main/docs/storage.md) covers local files, R2, S3, migration and durable cleanup.
-
-## How changes reach applications
-
-A provider fix belongs in Sidedoor once. After verification, a release produces versioned npm archives. Each application updates its dependency and lockfile and runs its integration checks. Existing deployments retain their installed version until their operator upgrades them.
-
-This repository is the shared source of truth. A Git submodule is useful for source development, but consumers do not need one to use the packages. App-specific prompts, model defaults, billing policy, content schemas and deployment secrets remain with the app.
-
-## Contributing
-
-Run `npm run check` and `npm run format:check` before submitting changes. Run `npm run test:package-install` for public API, dependency or packaging changes. The installed pre-commit hook rejects source files over 1,000 lines and new source files in directories that already contain 10 files. Tests must exercise observable behavior, including failures and cancellation where relevant. A new catalog entry alone does not establish a working transport; add adapter and installed-consumer coverage for the capabilities it exposes.
-
-## License
-
-MIT. See [LICENSE](https://github.com/affromero/sidedoor/blob/main/LICENSE).
+Sidedoor is available under the [MIT License](https://github.com/affromero/sidedoor/blob/main/LICENSE).
