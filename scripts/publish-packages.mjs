@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
@@ -46,11 +47,32 @@ async function registeredVersion(candidate, npm) {
   return manifest;
 }
 
+async function waitForRegisteredVersion(candidate, npm, { wait, attempts, delayMs, report }) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const manifest = await registeredVersion(candidate, npm);
+    if (manifest) return manifest;
+    if (attempt === attempts) break;
+    report(
+      `Waiting for npm registry visibility: ${candidate.name}@${candidate.version} (${attempt}/${attempts})`,
+    );
+    await wait(delayMs);
+  }
+  assert.fail(
+    `Published version is not visible after ${attempts} attempts: ${candidate.name}@${candidate.version}`,
+  );
+}
+
 /** Publishes only archives already exercised by the installed-consumer verifier. */
 export async function publishPackages(
   directory,
   tag,
-  { npm = runNpm, report = (message) => process.stdout.write(`${message}\n`) } = {},
+  {
+    npm = runNpm,
+    report = (message) => process.stdout.write(`${message}\n`),
+    wait = delay,
+    visibilityAttempts = 24,
+    visibilityDelayMs = 5_000,
+  } = {},
 ) {
   const artifacts = JSON.parse(await readFile(join(directory, 'artifacts.json'), 'utf8'));
   assert.equal(artifacts.length, order.length, 'Release must contain all packages');
@@ -123,10 +145,12 @@ export async function publishPackages(
     );
     await npm(['publish', candidate.path, '--provenance', '--access', 'public', '--ignore-scripts']);
     report(`Published: ${candidate.name}@${candidate.version}`);
-    assert.ok(
-      await registeredVersion(candidate, npm),
-      'Published version is not yet visible; retain these archives and retry verification',
-    );
+    await waitForRegisteredVersion(candidate, npm, {
+      wait,
+      attempts: visibilityAttempts,
+      delayMs: visibilityDelayMs,
+      report,
+    });
   }
 }
 

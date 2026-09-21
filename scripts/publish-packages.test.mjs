@@ -75,6 +75,70 @@ test('publishes the verified archives and resumes a partial release without repe
   assert.equal(f.writes.length, 3);
 });
 
+test('waits for a published archive to become visible before publishing its dependent package', async (t) => {
+  const f = await fixture(t);
+  const pendingViews = new Map();
+  const waits = [];
+  const delayedRegistry = async (args) => {
+    if (args[0] === 'publish') {
+      await f.npm(args);
+      const artifact = f.artifacts.find((item) => item.filename === basename(args[1]));
+      assert.ok(artifact);
+      pendingViews.set(`${artifact.name}@${artifact.version}`, 2);
+      return '';
+    }
+    if (args[0] === 'view') {
+      const remaining = pendingViews.get(args[1]);
+      if (remaining) {
+        pendingViews.set(args[1], remaining - 1);
+        throw Object.assign(new Error('Registry lookup failed'), {
+          stdout: JSON.stringify({ error: { code: 'E404', summary: `${args[1]} is not in this registry` } }),
+        });
+      }
+    }
+    return f.npm(args);
+  };
+  await publishPackages(f.directory, 'v1.0.0', {
+    ...f,
+    npm: delayedRegistry,
+    wait: async (delayMs) => waits.push(delayMs),
+    visibilityAttempts: 3,
+    visibilityDelayMs: 25,
+  });
+  assert.deepEqual(f.writes, ['thesidedoor-flock', 'thesidedoor-core', 'thesidedoor']);
+  assert.deepEqual(waits, [25, 25, 25, 25, 25, 25]);
+});
+
+test('stops before dependent publication when registry visibility never arrives', async (t) => {
+  const f = await fixture(t);
+  const hidden = new Set();
+  const unavailableRegistry = async (args) => {
+    if (args[0] === 'publish') {
+      await f.npm(args);
+      const artifact = f.artifacts.find((item) => item.filename === basename(args[1]));
+      assert.ok(artifact);
+      hidden.add(`${artifact.name}@${artifact.version}`);
+      return '';
+    }
+    if (args[0] === 'view' && hidden.has(args[1]))
+      throw Object.assign(new Error('Registry lookup failed'), {
+        stdout: JSON.stringify({ error: { code: 'E404', summary: `${args[1]} is not in this registry` } }),
+      });
+    return f.npm(args);
+  };
+  await assert.rejects(
+    publishPackages(f.directory, 'v1.0.0', {
+      ...f,
+      npm: unavailableRegistry,
+      wait: async () => {},
+      visibilityAttempts: 3,
+      visibilityDelayMs: 1,
+    }),
+    /not visible after 3 attempts: thesidedoor-flock@1.0.0/,
+  );
+  assert.deepEqual(f.writes, ['thesidedoor-flock']);
+});
+
 test('refuses every publication when any retained archive changed', async (t) => {
   const f = await fixture(t);
   await writeFile(join(f.directory, f.artifacts[2].filename), 'changed');
