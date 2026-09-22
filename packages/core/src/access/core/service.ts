@@ -35,6 +35,8 @@ export function transitionAccessMode(state: AccessState, mode: AccessState['mode
   state.mode = mode;
   state.policyEpoch++;
   state.householdEpoch++;
+  state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+  state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
   state.sessions = state.sessions.filter((session) => session.principalId !== null);
   state.deviceTokens = state.deviceTokens.filter((device) => device.principalId !== null);
   state.tokens = state.tokens.filter((token) => token.kind !== 'pair' || token.principalId !== null);
@@ -105,7 +107,12 @@ export class AccessService {
     return this.sessionFromState(await this.store.read(), token, owner, recent);
   }
 
-  issueSession(state: AccessState, principalId: string | null, name: string): string {
+  issueSession(
+    state: AccessState,
+    principalId: string | null,
+    name: string,
+    householdEnrollmentAvailable = false,
+  ): string {
     const principal = principalId ? state.principals.find((item) => item.id === principalId) : null;
     if (principalId && !principal) throw new AccessError('unauthorized');
     const raw = newToken();
@@ -124,6 +131,7 @@ export class AccessService {
       createdAt: now,
       authenticatedAt: now,
       expiresAt: now + (principal ? this.ttl : this.householdTtl),
+      ...(householdEnrollmentAvailable ? { householdEnrollmentAvailable: true } : {}),
     });
     return raw;
   }
@@ -249,6 +257,8 @@ export class AccessService {
       this.sessionFromState(state, ownerToken, true, true);
       state.householdPasswordHash = encoded;
       state.householdEpoch++;
+      state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+      state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
       state.sessions = state.sessions.filter((item) => item.principalId !== null);
     });
   }
@@ -346,10 +356,13 @@ export class AccessService {
       if (replacement !== snapshot.householdPasswordHash) {
         state.householdPasswordHash = replacement;
         state.householdEpoch++;
+        for (const key of state.passkeys) {
+          if (key.scope === 'household') key.householdEpoch = state.householdEpoch;
+        }
         state.sessions = state.sessions.filter((item) => item.principalId !== null);
       }
       state.failures = state.failures.filter((item) => item.key !== rateLimitKey('household'));
-      return this.issueSession(state, null, deviceName);
+      return this.issueSession(state, null, deviceName, true);
     });
   }
 

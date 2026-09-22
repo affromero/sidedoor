@@ -202,8 +202,12 @@ export function createAccessHandler(options: AccessHttpOptions) {
       const passkeyAction = [
         'register-options',
         'register-passkey',
+        'household-register-options',
+        'register-household-passkey',
         'authentication-options',
         'authenticate-passkey',
+        'household-authentication-options',
+        'authenticate-household-passkey',
         'reauthentication-options',
         'reauthenticate-passkey',
       ].includes(action);
@@ -214,6 +218,8 @@ export function createAccessHandler(options: AccessHttpOptions) {
           return reply({
             password: true,
             passkeys: supportsPasskeys && canonicalRequest,
+            householdPasskeys:
+              supportsPasskeys && canonicalRequest && (await passkeys().hasHouseholdPasskeys()),
             openHousehold: await options.access.supportsOpenHousehold(),
           });
         if (action === 'session') {
@@ -230,6 +236,8 @@ export function createAccessHandler(options: AccessHttpOptions) {
         if (action === 'selected-profile' && options.profiles)
           return reply({ profile: await options.profiles.selected(token) });
         if (action === 'passkeys') return reply({ passkeys: await credentials.list(token) });
+        if (action === 'household-passkeys')
+          return reply({ passkeys: await credentials.listHousehold(token) });
         if (action === 'invitations') return reply({ invitations: await invitations.list(token) });
         if (action === 'devices' && options.devices)
           return reply({ devices: await options.devices.list(token) });
@@ -390,6 +398,8 @@ export function createAccessHandler(options: AccessHttpOptions) {
       if (action === 'recovery-codes') return reply({ codes: await options.access.recoveryCodes(token) });
       if (action === 'register-options')
         return reply(await passkeys().registrationOptions(token, canonical.origin));
+      if (action === 'household-register-options')
+        return reply(await passkeys().householdRegistrationOptions(token, canonical.origin));
       if (action === 'register-passkey') {
         const input = registrationSchema.parse(body);
         await passkeys().register(
@@ -401,17 +411,38 @@ export function createAccessHandler(options: AccessHttpOptions) {
         );
         return reply({ ok: true });
       }
-      if (action === 'authentication-options' || action === 'reauthentication-options') {
+      if (action === 'register-household-passkey') {
+        const input = registrationSchema.parse(body);
+        await passkeys().registerHousehold(
+          token,
+          input.ceremony,
+          input.response,
+          input.name ?? 'Passkey',
+          canonical.origin,
+        );
+        return reply({ ok: true });
+      }
+      if (
+        action === 'authentication-options' ||
+        action === 'reauthentication-options' ||
+        action === 'household-authentication-options'
+      ) {
         const binding = newToken();
         const response = reply(
           action === 'reauthentication-options'
             ? await passkeys().reauthenticationOptions(token, binding, canonical.origin)
-            : await passkeys().authenticationOptions(binding, canonical.origin),
+            : action === 'household-authentication-options'
+              ? await passkeys().householdAuthenticationOptions(binding, canonical.origin)
+              : await passkeys().authenticationOptions(binding, canonical.origin),
         );
         response.headers.append('Set-Cookie', cookie(`${cookieName}_ceremony`, binding, 300));
         return response;
       }
-      if (action === 'authenticate-passkey' || action === 'reauthenticate-passkey') {
+      if (
+        action === 'authenticate-passkey' ||
+        action === 'reauthenticate-passkey' ||
+        action === 'authenticate-household-passkey'
+      ) {
         const input = authenticationSchema.parse(body);
         const binding = cookieValue(request, `${cookieName}_ceremony`) ?? '';
         const response = await signedIn(
@@ -423,13 +454,25 @@ export function createAccessHandler(options: AccessHttpOptions) {
                 input.response,
                 canonical.origin,
               )
-            : await passkeys().login(binding, input.ceremony, input.response, canonical.origin, input.name),
+            : action === 'authenticate-household-passkey'
+              ? await passkeys().loginHousehold(
+                  binding,
+                  input.ceremony,
+                  input.response,
+                  canonical.origin,
+                  input.name,
+                )
+              : await passkeys().login(binding, input.ceremony, input.response, canonical.origin, input.name),
         );
         response.headers.append('Set-Cookie', cookie(`${cookieName}_ceremony`, '', 0));
         return response;
       }
       if (action === 'remove-passkey') {
         await credentials.remove(token, z.object({ id: text }).parse(body).id);
+        return reply({ ok: true });
+      }
+      if (action === 'remove-household-passkey') {
+        await credentials.removeHousehold(token, z.object({ id: text }).parse(body).id);
         return reply({ ok: true });
       }
       return reply({ error: 'not_found' }, 404);

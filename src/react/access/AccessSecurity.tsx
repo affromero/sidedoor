@@ -17,6 +17,7 @@ export interface AccessSecurityCopy {
   verifyPassword: string;
   verifyPasskey: string;
   passkeys: string;
+  householdPasskeys?: string;
   passkeyName: string;
   addPasskey: string;
   remove: string;
@@ -45,6 +46,7 @@ const defaultCopy: AccessSecurityCopy = {
   verifyPassword: 'Verify with password',
   verifyPasskey: 'Verify with passkey',
   passkeys: 'Passkeys',
+  householdPasskeys: 'Household passkeys',
   passkeyName: 'Passkey name',
   addPasskey: 'Add passkey',
   remove: 'Remove',
@@ -80,6 +82,7 @@ export function AccessSecurity({ endpoint, classes = {}, copy, onSignInRequired 
   const id = useId();
   const [session, setSession] = useState<BrowserSession | null>(null);
   const [keys, setKeys] = useState<BrowserPasskey[]>([]);
+  const [householdKeys, setHouseholdKeys] = useState<BrowserPasskey[]>([]);
   const [sessions, setSessions] = useState<BrowserStoredSession[]>([]);
   const [supportsPasskeys, setSupportsPasskeys] = useState(false);
   const [replacement, setReplacement] = useState('');
@@ -100,14 +103,16 @@ export function AccessSecurity({ endpoint, classes = {}, copy, onSignInRequired 
         throw failure;
       });
       if (!current.principal) throw new AccessClientError('forbidden', 403);
-      const [capabilities, passkeys, devices] = await Promise.all([
+      const [capabilities, passkeys, devices, household] = await Promise.all([
         client.capabilities(signal),
         client.passkeys(signal),
         client.sessions(signal),
+        current.principal.role === 'owner' ? client.householdPasskeys(signal) : Promise.resolve([]),
       ]);
       signal.throwIfAborted();
       setSession(current);
       setKeys(passkeys);
+      setHouseholdKeys(household);
       setSessions(devices.filter((device) => device.principalId === current.principal?.id));
       setSupportsPasskeys(capabilities.passkeys && browserSupportsWebAuthn());
     },
@@ -118,6 +123,7 @@ export function AccessSecurity({ endpoint, classes = {}, copy, onSignInRequired 
     const controller = new AbortController();
     setSession(null);
     setKeys([]);
+    setHouseholdKeys([]);
     setSessions([]);
     setCodes([]);
     setReplacement('');
@@ -273,6 +279,34 @@ export function AccessSecurity({ endpoint, classes = {}, copy, onSignInRequired 
             </form>
           ) : (
             <p className={classes.hint}>{labels.passkeyUnavailable}</p>
+          )}
+          {session.principal.role === 'owner' && (
+            <>
+              <h3>{labels.householdPasskeys}</h3>
+              {householdKeys.length ? (
+                <ul>
+                  {householdKeys.map((key) => (
+                    <li key={key.id}>
+                      {key.name}{' '}
+                      <button
+                        type="button"
+                        className={classes.secondary}
+                        disabled={busy}
+                        onClick={() => {
+                          void run(async (signal) => {
+                            await client.mutation('remove-household-passkey', { id: key.id }, signal);
+                          });
+                        }}
+                      >
+                        {labels.remove}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={classes.hint}>{labels.empty}</p>
+              )}
+            </>
           )}
           <h3>{labels.password}</h3>
           <form

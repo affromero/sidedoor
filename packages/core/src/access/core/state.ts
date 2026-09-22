@@ -21,25 +21,44 @@ export const sessionSchema = z.object({
   createdAt: z.number(),
   authenticatedAt: z.number(),
   expiresAt: z.number(),
+  householdEnrollmentAvailable: z.boolean().optional(),
 });
-export const passkeySchema = z.object({
+export const passkeyTransportsSchema = z.array(
+  z.enum(['usb', 'nfc', 'ble', 'cable', 'internal', 'hybrid', 'smart-card']),
+);
+const passkeyFields = {
   id: z.string(),
-  principalId: z.string(),
   publicKey: z.string(),
   counter: z.number(),
-  transports: z.array(z.enum(['usb', 'nfc', 'ble', 'cable', 'internal', 'hybrid', 'smart-card'])),
+  transports: passkeyTransportsSchema,
   name: z.string(),
   createdAt: z.number(),
   backedUp: z.boolean(),
-});
+};
+export const passkeySchema = z.union([
+  z.object({ ...passkeyFields, scope: z.literal('principal').optional(), principalId: z.string() }),
+  z.object({
+    ...passkeyFields,
+    scope: z.literal('household'),
+    principalId: z.null(),
+    householdEpoch: z.number().int().nonnegative(),
+  }),
+]);
 export const challengeSchema = z.object({
   id: z.string(),
   challenge: z.string(),
-  kind: z.enum(['register', 'authenticate', 'reauthenticate']),
+  kind: z.enum([
+    'register',
+    'register-household',
+    'authenticate',
+    'authenticate-household',
+    'reauthenticate',
+  ]),
   principalId: z.string().nullable(),
   sessionId: z.string().nullable(),
   originalSessionId: z.string().optional(),
   principalEpoch: z.number().int().nonnegative().optional(),
+  householdEpoch: z.number().int().nonnegative().optional(),
   verificationAttempts: z.number().int().nonnegative().optional(),
   rpId: z.string(),
   origin: z.string(),

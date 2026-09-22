@@ -14,6 +14,7 @@ function reads(url: string): Response {
   if (url.endsWith('/session')) return Response.json(session);
   if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
   if (url.endsWith('/passkeys')) return Response.json({ passkeys: [] });
+  if (url.endsWith('/household-passkeys')) return Response.json({ passkeys: [] });
   if (url.endsWith('/sessions'))
     return Response.json({
       sessions: [

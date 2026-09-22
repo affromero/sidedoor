@@ -79,6 +79,24 @@ async function fixture(origin = 'https://private.example') {
   return { access, claim, handle, post };
 }
 describe('browser access endpoints', () => {
+  it('issues a household enrollment ceremony only after password admission on the canonical origin', async () => {
+    const { access, claim, post } = await fixture();
+    const owner = await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
+    await access.configureHousehold(owner, 'household password for testing');
+    const invited = await access.store.transact((state) => access.issueSession(state, null, 'Invited'));
+    expect(
+      (await post('household-register-options', {}, { cookie: `sidedoor_session=${invited}` })).status,
+    ).toBe(403);
+    const guest = await access.enterHousehold('household password for testing');
+    const response = await post('household-register-options', {}, { cookie: `sidedoor_session=${guest}` });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ceremony: expect.any(String),
+      options: { rp: { id: 'private.example' } },
+    });
+    expect((await post('register-options', {}, { cookie: `sidedoor_session=${guest}` })).status).toBe(403);
+  });
+
   it('pairs only the household profile currently selected by the authenticated browser', async () => {
     const { access, claim } = await fixture();
     const owner = await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
@@ -296,6 +314,7 @@ describe('browser access endpoints', () => {
     expect(await (await proxy(get(canonical), 'capabilities')).json()).toEqual({
       password: true,
       passkeys: true,
+      householdPasskeys: false,
       openHousehold: false,
     });
     expect((await proxy(get('https://unknown.example'), 'capabilities')).status).toBe(403);
@@ -428,12 +447,21 @@ describe('browser access endpoints', () => {
     for (const action of [
       'register-options',
       'register-passkey',
+      'household-register-options',
+      'register-household-passkey',
       'authentication-options',
       'authenticate-passkey',
+      'household-authentication-options',
+      'authenticate-household-passkey',
     ])
       expect((await post(alias, action, {}, alias, { cookie })).status).toBe(403);
     const capability = await handle(new Request(`${alias}/access/capabilities`), 'capabilities');
-    expect(await capability.json()).toEqual({ password: true, passkeys: false, openHousehold: false });
+    expect(await capability.json()).toEqual({
+      password: true,
+      passkeys: false,
+      householdPasskeys: false,
+      openHousehold: false,
+    });
     const login = await post(canonical, 'login', { name: 'Owner', password: enrollment.password });
     expect(login.status).toBe(200);
     expect(login.headers.get('set-cookie')).toContain('Secure');
@@ -529,7 +557,12 @@ describe('browser access endpoints', () => {
       ).status,
     ).toBe(200);
     const response = await handle(new Request('http://192.168.1.5:3000/access/capabilities'), 'capabilities');
-    expect(await response.json()).toEqual({ password: true, passkeys: false, openHousehold: false });
+    expect(await response.json()).toEqual({
+      password: true,
+      passkeys: false,
+      householdPasskeys: false,
+      openHousehold: false,
+    });
     expect((await post('login', { name: 'Owner', password: 'a sufficiently long password' })).status).toBe(
       200,
     );

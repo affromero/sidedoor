@@ -125,6 +125,117 @@ async function fixture() {
 }
 
 describe('passkey authentication', () => {
+  it('enrolls after a household password and returns to household access without owner authority', async () => {
+    const { access, owner, passkeys } = await fixture();
+    await access.configureHousehold(owner, 'a long household password');
+    const household = await access.enterHousehold('a long household password');
+    const device = authenticator();
+    const registration = await passkeys.householdRegistrationOptions(household, origin);
+    await passkeys.registerHousehold(
+      household,
+      registration.ceremony,
+      device.register(registration.options.challenge),
+      'Mac',
+      origin,
+    );
+    expect(await passkeys.hasHouseholdPasskeys()).toBe(true);
+    expect(await passkeys.listHousehold(owner)).toMatchObject([{ name: 'Mac' }]);
+    await expect(passkeys.list(household)).rejects.toMatchObject({ code: 'forbidden' });
+
+    const binding = newToken();
+    const challenge = await passkeys.householdAuthenticationOptions(binding, origin);
+    const assertion = device.login(challenge.options.challenge, 1);
+    const token = await passkeys.loginHousehold(binding, challenge.ceremony, assertion, origin);
+    expect((await access.authenticate(token)).principal).toBeNull();
+    await expect(access.authenticate(token, true)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      passkeys.loginHousehold(binding, challenge.ceremony, assertion, origin),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('rejects household enrollment without a fresh password-entry grant and never crosses passkey scopes', async () => {
+    const { access, owner, passkeys, device } = await fixture();
+    await access.configureHousehold(owner, 'a long household password');
+    const invited = await access.store.transact((state) => access.issueSession(state, null, 'Invited'));
+    await expect(passkeys.householdRegistrationOptions(invited, origin)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const household = await access.enterHousehold('a long household password');
+    const householdDevice = authenticator();
+    const registration = await passkeys.householdRegistrationOptions(household, origin);
+    await passkeys.registerHousehold(
+      household,
+      registration.ceremony,
+      householdDevice.register(registration.options.challenge),
+      'Mac',
+      origin,
+    );
+    await expect(passkeys.householdRegistrationOptions(household, origin)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const accountBinding = newToken();
+    const accountChallenge = await passkeys.authenticationOptions(accountBinding, origin);
+    await expect(
+      passkeys.login(
+        accountBinding,
+        accountChallenge.ceremony,
+        householdDevice.login(accountChallenge.options.challenge, 1),
+        origin,
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    const householdBinding = newToken();
+    const householdChallenge = await passkeys.householdAuthenticationOptions(householdBinding, origin);
+    await expect(
+      passkeys.loginHousehold(
+        householdBinding,
+        householdChallenge.ceremony,
+        device.login(householdChallenge.options.challenge, 1),
+        origin,
+      ),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('revokes household passkeys when the shared password changes', async () => {
+    const { access, owner, passkeys } = await fixture();
+    await access.configureHousehold(owner, 'a long household password');
+    const household = await access.enterHousehold('a long household password');
+    const device = authenticator();
+    const registration = await passkeys.householdRegistrationOptions(household, origin);
+    await passkeys.registerHousehold(
+      household,
+      registration.ceremony,
+      device.register(registration.options.challenge),
+      'Mac',
+      origin,
+    );
+    await access.configureHousehold(owner, 'a different household password');
+    expect(await passkeys.hasHouseholdPasskeys()).toBe(false);
+    await expect(passkeys.householdAuthenticationOptions(newToken(), origin)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+  });
+
+  it('lets the owner revoke one household passkey without removing the others', async () => {
+    const { access, owner, passkeys } = await fixture();
+    await access.configureHousehold(owner, 'a long household password');
+    for (const name of ['Mac', 'Phone']) {
+      const household = await access.enterHousehold('a long household password');
+      const registration = await passkeys.householdRegistrationOptions(household, origin);
+      await passkeys.registerHousehold(
+        household,
+        registration.ceremony,
+        authenticator().register(registration.options.challenge),
+        name,
+        origin,
+      );
+    }
+    const before = await passkeys.listHousehold(owner);
+    expect(before.map((key) => key.name)).toEqual(['Mac', 'Phone']);
+    await passkeys.removeHousehold(owner, before[0]!.id);
+    expect((await passkeys.listHousehold(owner)).map((key) => key.name)).toEqual(['Phone']);
+    expect(await passkeys.hasHouseholdPasskeys()).toBe(true);
+  });
+
   it('bounds cryptographic verification attempts for a reusable challenge', async () => {
     const { passkeys, device } = await fixture();
     const binding = newToken();

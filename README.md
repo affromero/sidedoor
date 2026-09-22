@@ -169,14 +169,18 @@ The core access service owns password verification, WebAuthn passkeys, sessions,
 
 ```mermaid
 flowchart LR
-  Claim[One-time owner claim] --> Password[Password access]
-  Password --> Passkey[Enroll Apple, Google, Windows, or security-key passkey]
-  Passkey --> Session[Bound session]
-  Session --> Invite[Invite household profiles or devices]
-  Session --> Recovery[Rotate credentials or recover access]
+  Claim[One-time owner claim] --> Owner[Owner account and recovery]
+  Owner --> Household[Set household password]
+  Household --> Entry[Enter household]
+  Entry --> Save[Offer native passkey enrollment]
+  Save --> Picker[Application profile picker]
+  Entry --> Picker
+  Save --> Later[Passkey sign-in on a later visit]
+  Later --> Picker
+  Owner --> Admin[Owner settings]
 ```
 
-Passkeys use the platform WebAuthn implementation, including Apple Passwords and iCloud Keychain where the browser and device support them. Password access remains available for initial claim and recovery according to application policy. Start with the [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and the [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts).
+Passkeys use the platform WebAuthn implementation, including Apple Passwords and iCloud Keychain where the browser and device support them. After a successful household password entry, `AccessForm` offers a skippable native passkey setup before the application opens its profile picker. A household passkey signs in to the household only. It cannot grant owner or member authority. Enrollment requires a fresh password-entry session, and changing the household password or access mode revokes those passkeys. The owner can review and remove them from `AccessSecurity`. Password entry remains available. Start with the [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and the [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts).
 
 ## Choose storage
 
