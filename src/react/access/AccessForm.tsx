@@ -52,7 +52,7 @@ export const defaultAccessFormCopy: AccessFormCopy = {
       forbidden: 'This action is not allowed.',
       conflict: 'The account or instance configuration changed. Check its current state before continuing.',
       rate_limited: 'Too many attempts. Try again later.',
-      cancelled: 'Passkey sign-in was cancelled.',
+      cancelled: 'The passkey prompt was cancelled.',
       passkey_failed: 'The passkey could not be used. Try again or continue with the password.',
       ceremony_busy: 'A passkey prompt is already open.',
       outcome_unknown: 'The request may have completed. Check whether you can sign in before trying again.',
@@ -200,30 +200,32 @@ export function AccessForm({
   if (pendingSession)
     return (
       <section className={classes.root} aria-busy={busy}>
-        <p className={classes.hint}>{labels.savePasskeyHint}</p>
-        <button
-          type="button"
-          className={classes.button}
-          disabled={busy}
-          onClick={() => {
-            void enrollHouseholdPasskey();
-          }}
-        >
-          {busy ? labels.working : labels.savePasskey}
-        </button>
-        <button
-          type="button"
-          className={classes.secondary}
-          disabled={busy}
-          onClick={() => onSignedIn(pendingSession)}
-        >
-          {labels.continueWithoutPasskey}
-        </button>
-        {error && (
-          <p className={classes.error} role="alert" tabIndex={-1} ref={errorElement}>
-            {labels.error(error)}
-          </p>
-        )}
+        <div className={classes.form}>
+          <p className={classes.hint}>{labels.savePasskeyHint}</p>
+          <button
+            type="button"
+            className={classes.button}
+            disabled={busy}
+            onClick={() => {
+              void enrollHouseholdPasskey();
+            }}
+          >
+            {busy ? labels.working : labels.savePasskey}
+          </button>
+          <button
+            type="button"
+            className={classes.secondary}
+            disabled={busy}
+            onClick={() => onSignedIn(pendingSession)}
+          >
+            {labels.continueWithoutPasskey}
+          </button>
+          {error && (
+            <p className={classes.error} role="alert" tabIndex={-1} ref={errorElement}>
+              {labels.error(error)}
+            </p>
+          )}
+        </div>
       </section>
     );
 
