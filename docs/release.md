@@ -12,7 +12,7 @@ Publication proceeds in dependency order: native locking, core, then UI/connecti
 
 Publication across packages is not atomic. If a later package fails, keep the retained workflow artifact and rerun the failed publishing job. The script verifies previously published versions against those exact archives before skipping them. A version with different contents is a conflict; do not replace the artifact to bypass it.
 
-If registry propagation delays verification after a successful publish, rerun verification against the same artifact. The script reports each completed package. The concurrency group prevents simultaneous release runs. GitHub Actions may replace an older pending run when another tag arrives, so check each intended tag's workflow status.
+If npm stages a version before exposing it publicly, the publish job waits up to ten minutes for that exact archive. A retry accepts npm's staged-version conflict only after the archive becomes visible with the verified integrity. If visibility still times out, rerun the failed job with the retained artifact after npm exposes the version. The script reports each completed package. The concurrency group prevents simultaneous release runs. GitHub Actions may replace an older pending run when another tag arrives, so check each intended tag's workflow status.
 
 ## Acceptance
 

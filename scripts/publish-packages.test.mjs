@@ -109,6 +109,41 @@ test('waits for a published archive to become visible before publishing its depe
   assert.deepEqual(waits, [25, 25, 25, 25, 25, 25]);
 });
 
+test('resumes an npm-staged version only after its exact archive becomes visible', async (t) => {
+  const f = await fixture(t);
+  const staged = `${f.artifacts[0].name}@${f.artifacts[0].version}`;
+  let hidden = 2;
+  const waits = [];
+  const npm = async (args) => {
+    if (args[0] === 'view' && args[1] === staged && hidden > 0) {
+      hidden -= 1;
+      throw Object.assign(new Error('Registry lookup failed'), {
+        stdout: JSON.stringify({ error: { code: 'E404', summary: `${staged} is not in this registry` } }),
+      });
+    }
+    if (args[0] === 'publish' && basename(args[1]).startsWith('thesidedoor-flock-'))
+      throw Object.assign(new Error('Version staged'), {
+        stderr:
+          'npm error code E409\nnpm error 409 Conflict - Cannot publish over previously staged version "1.0.0".',
+      });
+    return f.npm(args);
+  };
+  f.published.set(staged, {
+    name: f.artifacts[0].name,
+    version: f.artifacts[0].version,
+    dist: { integrity: f.artifacts[0].integrity },
+  });
+  await publishPackages(f.directory, 'v1.0.0', {
+    ...f,
+    npm,
+    wait: async (delayMs) => waits.push(delayMs),
+    visibilityAttempts: 3,
+    visibilityDelayMs: 25,
+  });
+  assert.deepEqual(waits, [25]);
+  assert.deepEqual(f.writes, ['thesidedoor-core', 'thesidedoor']);
+});
+
 test('stops before dependent publication when registry visibility never arrives', async (t) => {
   const f = await fixture(t);
   const hidden = new Set();
