@@ -178,13 +178,17 @@ describe('household profiles', () => {
       requiredDeviceScopes: ['app'],
       ownerDeviceScope: 'owner',
     });
-    const limited = await devices.redeemPairing(await devices.issuePairing(owner, ['app'], 'Tablet'));
+    const limited = await devices.redeemPairing(
+      await devices.issuePairing(owner, ['app'], 'Tablet', { defaultProfileId: ownerId }),
+    );
     const prepared = management.prepareCreate('Learner');
     await expect(
       store.transact((state) => prepared.apply(state, { kind: 'device', token: limited })),
     ).rejects.toMatchObject({ code: 'forbidden' });
     const delegated = await devices.redeemPairing(
-      await devices.issuePairing(owner, ['app', 'owner'], 'Owner tablet'),
+      await devices.issuePairing(owner, ['app', 'owner'], 'Owner tablet', {
+        defaultProfileId: ownerId,
+      }),
     );
     await store.transact((state) => prepared.apply(state, { kind: 'device', token: delegated }));
     const revoked = management.prepareCreate('Another learner');

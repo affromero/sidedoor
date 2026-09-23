@@ -68,6 +68,20 @@ export class DeviceService {
     };
   }
 
+  private scopedPrincipal(
+    state: AccessState,
+    principal: AuthenticatedSession['principal'],
+    defaultProfileId?: string,
+  ): AuthenticatedSession['principal'] {
+    if (principal || !defaultProfileId) return principal;
+    const profile = state.householdProfiles?.find((entry) => entry.id === defaultProfileId);
+    if (!profile) return null;
+    const owner = state.principals.find(
+      (entry) => entry.id === (profile.ownerPrincipalId ?? profile.id) && entry.role === 'owner',
+    );
+    return owner ? this.principal(state, owner.id, owner.epoch) : null;
+  }
+
   async issuePairing(
     sessionToken: string,
     scopes: readonly string[],
@@ -95,9 +109,7 @@ export class DeviceService {
         if (!profile || profile.id !== options.defaultProfileId) throw new AccessError('forbidden');
         binding = { defaultProfileId: profile.id, defaultProfileEpoch: profile.epoch };
       }
-      const authority = binding
-        ? auth.principal
-        : (this.options.access.householdOwnerForSession(state, auth.session) ?? auth.principal);
+      const authority = this.scopedPrincipal(state, auth.principal, binding?.defaultProfileId);
       const allowed = this.options.scopesFor(authority);
       if (scopes.some((scope) => !allowed.includes(scope))) throw new AccessError('forbidden');
       const now = this.options.access.now();
@@ -111,8 +123,8 @@ export class DeviceService {
       state.tokens.push({
         id: tokenHash(raw),
         kind: 'pair',
-        principalId: authority?.id ?? null,
-        epoch: authority?.epoch ?? auth.session.epoch,
+        principalId: auth.principal?.id ?? null,
+        epoch: auth.session.epoch,
         issuerSessionId: auth.session.id,
         scopes: [...new Set(scopes)],
         deviceName: name.trim(),
@@ -138,14 +150,7 @@ export class DeviceService {
       )
         throw new AccessError('unauthorized');
       const issuer = state.sessions.find((item) => item.id === pair.issuerSessionId && item.expiresAt > now);
-      const householdIssuer = issuer && this.options.access.householdOwnerForSession(state, issuer);
-      if (
-        !issuer ||
-        !(
-          (issuer.principalId === pair.principalId && issuer.epoch === pair.epoch) ||
-          (householdIssuer?.id === pair.principalId && householdIssuer.epoch === pair.epoch)
-        )
-      )
+      if (!issuer || issuer.principalId !== pair.principalId || issuer.epoch !== pair.epoch)
         throw new AccessError('unauthorized');
       const principal = this.principal(state, pair.principalId, pair.epoch);
       if (
@@ -156,7 +161,7 @@ export class DeviceService {
           ))
       )
         throw new AccessError('unauthorized');
-      const allowed = this.options.scopesFor(principal);
+      const allowed = this.options.scopesFor(this.scopedPrincipal(state, principal, pair.defaultProfileId));
       if (pair.scopes.some((scope) => !allowed.includes(scope))) throw new AccessError('forbidden');
       state.deviceTokens = state.deviceTokens.filter(
         (item) => item.expiresAt === null || item.expiresAt > now,
@@ -281,12 +286,13 @@ export class DeviceService {
         'The paired profile is no longer available. Pair this device again.',
       );
     const principal = this.principal(state, device.principalId, device.epoch);
-    const allowed = this.options.scopesFor(principal);
+    const scopedPrincipal = this.scopedPrincipal(state, principal, device.defaultProfileId);
+    const allowed = this.options.scopesFor(scopedPrincipal);
     const scopes = device.scopes.filter((scope) => allowed.includes(scope));
     if (required.some((scope) => !scopes.includes(scope))) throw new AccessError('forbidden');
     return {
       id: device.id,
-      principal,
+      principal: scopedPrincipal,
       scopes,
       name: device.name,
       expiresAt: device.expiresAt,

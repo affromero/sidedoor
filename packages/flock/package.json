@@ -1,6 +1,6 @@
 {
   "name": "thesidedoor-flock",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Native operating-system file locking for Sidedoor file-backed state",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",
