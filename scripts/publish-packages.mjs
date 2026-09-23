@@ -70,7 +70,7 @@ export async function publishPackages(
     npm = runNpm,
     report = (message) => process.stdout.write(`${message}\n`),
     wait = delay,
-    visibilityAttempts = 24,
+    visibilityAttempts = 120,
     visibilityDelayMs = 5_000,
   } = {},
 ) {
@@ -143,8 +143,18 @@ export async function publishPackages(
       candidate.integrity,
       'Archive changed after preflight',
     );
-    await npm(['publish', candidate.path, '--provenance', '--access', 'public', '--ignore-scripts']);
-    report(`Published: ${candidate.name}@${candidate.version}`);
+    try {
+      await npm(['publish', candidate.path, '--provenance', '--access', 'public', '--ignore-scripts']);
+      report(`Published: ${candidate.name}@${candidate.version}`);
+    } catch (error) {
+      const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr) : '';
+      if (
+        !stderr.includes('npm error code E409') ||
+        !stderr.includes(`Cannot publish over previously staged version "${candidate.version}"`)
+      )
+        throw error;
+      report(`Already staged by npm: ${candidate.name}@${candidate.version}`);
+    }
     await waitForRegisteredVersion(candidate, npm, {
       wait,
       attempts: visibilityAttempts,
