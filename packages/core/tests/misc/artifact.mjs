@@ -139,8 +139,8 @@ try {
       const ownerId = (await access.store.read()).principals.find(principal => principal.role === 'owner').id;
       await new HouseholdProfileService(access).select(ownerToken, ownerId);
       const invitation = await post('issue-invitation', {}, cookie);
-      assert.equal(invitation.status, 200);
-      const admitted = await post('redeem-invitation', { code: (await invitation.json()).code });
+      assert.equal(invitation.status, 403);
+      const admitted = await post('household', { password: 'artifact owner password' });
       assert.equal(admitted.status, 200);
       assert.equal((await post('issue-invitation', {}, admitted.headers.get('set-cookie'))).status, 403);
       let busy;
