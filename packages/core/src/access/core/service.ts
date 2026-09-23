@@ -179,6 +179,8 @@ export class AccessService {
     return this.store.transact((state) => {
       const principal = state.principals.find((item) => item.id === principalId);
       if (principalId && !principal) throw new AccessError('invalid');
+      if (principalId && state.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       if (!principalId && state.principals.some((item) => item.role === 'owner'))
         throw new AccessError('conflict');
       const raw = newToken();
@@ -307,6 +309,8 @@ export class AccessService {
       }
       state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
       state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.recoveryCodes = [];
+      state.tokens = state.tokens.filter((token) => token.kind !== 'recover');
       state.sessions = [];
     });
   }
@@ -326,6 +330,8 @@ export class AccessService {
       }
       state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
       state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.recoveryCodes = [];
+      state.tokens = state.tokens.filter((token) => token.kind !== 'recover');
       state.sessions = [];
     });
   }
@@ -522,6 +528,8 @@ export class AccessService {
 
   async recoveryCodes(token: string): Promise<string[]> {
     return this.store.transact((state) => {
+      if (state.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       const { principal } = this.sessionFromState(state, token, state.mode === 'household', true);
       if (!principal) throw new AccessError('forbidden');
       const codes = Array.from({ length: 8 }, newToken);
@@ -533,6 +541,8 @@ export class AccessService {
 
   async recover(code: string, password: string): Promise<string> {
     const snapshot = await this.store.read();
+    if (snapshot.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
     const hash = tokenHash(code);
     if (
       !snapshot.recoveryCodes.some((item) => item.id === hash) &&

@@ -52,14 +52,17 @@ describe('instance access', () => {
     expect((await hosted.authenticate(recovered)).principal?.role).toBe('owner');
     expect((await store.read()).householdPasswordHash).toBe(before);
   });
-  it('uses owner recovery to replace the shared gate and revoke admitted sessions', async () => {
+  it('requires local reset for a private household and revokes admitted sessions', async () => {
     const { service, store, owner } = await fixture('household');
     const ownerId = (await store.read()).principals[0]!.id;
     await new HouseholdProfileService(service).select(owner, ownerId);
     const admitted = await service.enterHousehold('correct horse battery staple');
-    const codes = await service.recoveryCodes(owner);
-    const recovered = await service.recover(codes[0]!, 'one replacement household password');
-    expect((await service.authenticate(recovered)).principal).toBeNull();
+    await expect(service.recoveryCodes(owner)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(service.issueOperatorToken(ownerId)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(service.recover('unused-code', 'one replacement household password')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await service.resetHouseholdPasswordForOperator('one replacement household password');
     await expect(service.authenticate(admitted)).rejects.toMatchObject({ code: 'unauthorized' });
     await expect(service.enterHousehold('correct horse battery staple')).rejects.toMatchObject({
       code: 'unauthorized',
