@@ -15,6 +15,7 @@ describe('shared access form', () => {
     });
     render(<AccessForm initialMode="household" modes={['household']} onSignedIn={() => {}} />);
     const account = screen.getByRole('textbox', { name: 'Shared account' }) as HTMLInputElement;
+    expect(screen.queryByRole('navigation')).toBeNull();
     expect(account.value).toBe('Household');
     expect(account.readOnly).toBe(true);
     expect(account.getAttribute('autocomplete')).toBe('username');
@@ -42,7 +43,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="claim" modes={['claim']} claimModes={['household']} onSignedIn={() => {}} />,
     );
     expect(screen.queryByRole('combobox', { name: 'Access mode' })).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(1);
   });
 
   it('offers passkey enrollment after household password entry before opening the profile picker', async () => {

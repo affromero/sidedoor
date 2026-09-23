@@ -261,31 +261,33 @@ export function AccessForm({
 
   return (
     <section className={classes.root} aria-busy={busy}>
-      <nav className={classes.navigation} aria-label={labels.mode}>
-        {modes.map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={classes.secondary}
-            aria-label={labels[value]}
-            aria-pressed={mode === value}
-            aria-describedby={`${id}-${value}-description`}
-            title={descriptions[value]}
-            disabled={busy}
-            onClick={() => {
-              setMode(value);
-              setPassword('');
-              setCode('');
-              setError('');
-            }}
-          >
-            {labels[value]}
-            <span id={`${id}-${value}-description`} className={classes.modeDescription}>
-              {descriptions[value]}
-            </span>
-          </button>
-        ))}
-      </nav>
+      {modes.length > 1 && (
+        <nav className={classes.navigation} aria-label={labels.mode}>
+          {modes.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={classes.secondary}
+              aria-label={labels[value]}
+              aria-pressed={mode === value}
+              aria-describedby={`${id}-${value}-description`}
+              title={descriptions[value]}
+              disabled={busy}
+              onClick={() => {
+                setMode(value);
+                setPassword('');
+                setCode('');
+                setError('');
+              }}
+            >
+              {labels[value]}
+              <span id={`${id}-${value}-description`} className={classes.modeDescription}>
+                {descriptions[value]}
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
       <form
         className={classes.form}
         onSubmit={(event) => {
