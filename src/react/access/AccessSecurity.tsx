@@ -73,6 +73,7 @@ export interface AccessSecurityProps {
   endpoint?: string;
   classes?: AccessFormProps['classes'];
   copy?: Partial<AccessSecurityCopy>;
+  showRecoveryCodes?: boolean;
   onSignInRequired(): void;
   onHouseholdEntered?(): void;
 }
@@ -81,6 +82,7 @@ export function AccessSecurity({
   endpoint,
   classes = {},
   copy,
+  showRecoveryCodes = true,
   onSignInRequired,
   onHouseholdEntered,
 }: AccessSecurityProps) {
@@ -316,33 +318,37 @@ export function AccessSecurity({
               {labels.changePassword}
             </button>
           </form>
-          <h3>{labels.recovery}</h3>
-          <p className={classes.hint}>{labels.recoveryHint}</p>
-          <button
-            className={classes.button}
-            disabled={busy}
-            type="button"
-            onClick={() => {
-              void run(async (signal) => {
-                const generated = await client.recoveryCodes(signal);
-                if (!signal.aborted) setCodes(generated);
-              }, false);
-            }}
-          >
-            {labels.generateCodes}
-          </button>
-          {codes.length > 0 && (
+          {showRecoveryCodes && (
             <>
-              <ol>
-                {codes.map((code) => (
-                  <li key={code}>
-                    <code>{code}</code>
-                  </li>
-                ))}
-              </ol>
-              <button className={classes.secondary} type="button" onClick={() => setCodes([])}>
-                {labels.hideCodes}
+              <h3>{labels.recovery}</h3>
+              <p className={classes.hint}>{labels.recoveryHint}</p>
+              <button
+                className={classes.button}
+                disabled={busy}
+                type="button"
+                onClick={() => {
+                  void run(async (signal) => {
+                    const generated = await client.recoveryCodes(signal);
+                    if (!signal.aborted) setCodes(generated);
+                  }, false);
+                }}
+              >
+                {labels.generateCodes}
               </button>
+              {codes.length > 0 && (
+                <>
+                  <ol>
+                    {codes.map((code) => (
+                      <li key={code}>
+                        <code>{code}</code>
+                      </li>
+                    ))}
+                  </ol>
+                  <button className={classes.secondary} type="button" onClick={() => setCodes([])}>
+                    {labels.hideCodes}
+                  </button>
+                </>
+              )}
             </>
           )}
           <h3>{labels.sessions}</h3>
@@ -504,33 +510,37 @@ export function AccessSecurity({
               {labels.changePassword}
             </button>
           </form>
-          <h3>{labels.recovery}</h3>
-          <p className={classes.hint}>{labels.recoveryHint}</p>
-          <button
-            className={classes.button}
-            disabled={busy}
-            type="button"
-            onClick={() => {
-              void run(async (signal) => {
-                const generated = await client.recoveryCodes(signal);
-                if (!signal.aborted) setCodes(generated);
-              }, false);
-            }}
-          >
-            {labels.generateCodes}
-          </button>
-          {codes.length > 0 && (
+          {showRecoveryCodes && (
             <>
-              <ol>
-                {codes.map((code) => (
-                  <li key={code}>
-                    <code>{code}</code>
-                  </li>
-                ))}
-              </ol>
-              <button className={classes.secondary} type="button" onClick={() => setCodes([])}>
-                {labels.hideCodes}
+              <h3>{labels.recovery}</h3>
+              <p className={classes.hint}>{labels.recoveryHint}</p>
+              <button
+                className={classes.button}
+                disabled={busy}
+                type="button"
+                onClick={() => {
+                  void run(async (signal) => {
+                    const generated = await client.recoveryCodes(signal);
+                    if (!signal.aborted) setCodes(generated);
+                  }, false);
+                }}
+              >
+                {labels.generateCodes}
               </button>
+              {codes.length > 0 && (
+                <>
+                  <ol>
+                    {codes.map((code) => (
+                      <li key={code}>
+                        <code>{code}</code>
+                      </li>
+                    ))}
+                  </ol>
+                  <button className={classes.secondary} type="button" onClick={() => setCodes([])}>
+                    {labels.hideCodes}
+                  </button>
+                </>
+              )}
             </>
           )}
           <h3>{labels.sessions}</h3>

@@ -311,6 +311,25 @@ export class AccessService {
     });
   }
 
+  /** Local operator only. Replace the shared password when the server owner loses access. */
+  async resetHouseholdPasswordForOperator(password: string): Promise<void> {
+    const encoded = await hashPassword(password);
+    await this.store.transact((state) => {
+      if (state.mode !== 'household' || !state.principals.some((principal) => principal.role === 'owner'))
+        throw new AccessError('conflict');
+      state.householdPasswordHash = encoded;
+      state.householdEpoch++;
+      for (const principal of state.principals) {
+        if (principal.role !== 'owner') continue;
+        principal.passwordHash = encoded;
+        principal.epoch++;
+      }
+      state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+      state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.sessions = [];
+    });
+  }
+
   async setRole(ownerToken: string, principalId: string, role: Principal['role']): Promise<void> {
     await new PrincipalManagement(this).mutate(ownerToken, { kind: 'update', id: principalId, role });
   }

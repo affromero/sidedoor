@@ -37,5 +37,10 @@ export { PrincipalManagement, removePrincipalFromState } from './identity/princi
 export type { PrincipalMutation, PreparedPrincipalMutation } from './identity/principals';
 export { initializeAccess, initializeHouseholdDevices } from './core/initialization';
 export type { InitialAccess, InitialHouseholdDevice } from './core/initialization';
-export { executeAccessCommand, parseAccessCommand } from './identity/operator';
+export {
+  executeAccessCommand,
+  parseAccessCommand,
+  readLocalSetupInput,
+  readLocalResetInput,
+} from './identity/operator';
 export type { AccessOperatorOptions } from './identity/operator';

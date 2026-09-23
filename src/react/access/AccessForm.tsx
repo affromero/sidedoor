@@ -318,6 +318,7 @@ export function AccessForm({
             <input
               id={`${id}-name`}
               className={classes.input}
+              name="username"
               value={name}
               onChange={(event) => setName(event.target.value)}
               autoComplete="username"
@@ -357,6 +358,7 @@ export function AccessForm({
               id={`${id}-password`}
               className={classes.input}
               type="password"
+              name="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={creating ? 'new-password' : 'current-password'}

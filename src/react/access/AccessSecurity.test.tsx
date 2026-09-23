@@ -26,6 +26,14 @@ function reads(url: string): Response {
 }
 
 describe('account security', () => {
+  it('keeps recovery codes out of shared-password security screens', async () => {
+    vi.stubGlobal('fetch', async (url: string) => reads(url));
+    render(<AccessSecurity showRecoveryCodes={false} onSignInRequired={() => {}} />);
+    await screen.findByText('This session');
+    expect(screen.queryByText('Recovery codes')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create recovery codes' })).toBeNull();
+  });
+
   it('lets the selected household Admin rotate the one shared password', async () => {
     let signedOut = false;
     let rotated = false;

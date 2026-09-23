@@ -78,6 +78,46 @@ it('issues a usable local claim and lists identities without credentials', async
   await expect(executeAccessCommand(access, ['recover', 'Owner'])).rejects.toMatchObject({ code: 'invalid' });
 });
 
+it('creates the first Admin and shared password entirely from the local setup command', async () => {
+  const { access, store } = await fixture();
+  const result = await executeAccessCommand(access, ['setup'], {
+    setupInput: async () => ({ name: 'Andres', password: 'one private household password' }),
+  });
+  expect(JSON.parse(result)).toEqual({ operation: 'setup', name: 'Andres' });
+  const state = await store.read();
+  expect(state.mode).toBe('household');
+  expect(state.principals).toMatchObject([{ name: 'Andres', role: 'owner' }]);
+  expect(state.householdPasswordHash).not.toBeNull();
+  expect(result).not.toContain('password');
+  await expect(
+    executeAccessCommand(access, ['setup'], {
+      setupInput: async () => ({ name: 'Stranger', password: 'another private password' }),
+    }),
+  ).rejects.toMatchObject({ code: 'conflict' });
+});
+
+it('resets the shared password locally and revokes prior household admission', async () => {
+  const { access, store } = await fixture();
+  await executeAccessCommand(access, ['setup'], {
+    setupInput: async () => ({ name: 'Andres', password: 'original household password' }),
+  });
+  const oldSession = await access.enterHousehold('original household password');
+  expect(
+    JSON.parse(
+      await executeAccessCommand(access, ['reset'], {
+        resetInput: async () => 'replacement household password',
+      }),
+    ),
+  ).toEqual({ operation: 'reset' });
+  await expect(access.authenticate(oldSession)).rejects.toMatchObject({ code: 'unauthorized' });
+  await expect(access.enterHousehold('original household password')).rejects.toMatchObject({
+    code: 'unauthorized',
+  });
+  const newSession = await access.enterHousehold('replacement household password');
+  expect((await access.authenticate(newSession)).principal).toBeNull();
+  expect((await store.read()).principals[0]?.role).toBe('owner');
+});
+
 it('keeps independent operator recovery codes usable for each account', async () => {
   const { access, store } = await fixture();
   await store.transact((state) => {
