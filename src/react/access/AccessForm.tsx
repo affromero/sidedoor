@@ -7,12 +7,20 @@ import {
 } from '../../../packages/core/src/access/transport/browser';
 
 export type AccessFormMode = 'login' | 'household' | 'claim' | 'recover';
+const accessModeDescriptions: Record<AccessFormMode, string> = {
+  login: 'Use your personal account name and password.',
+  household: 'Use the shared password, then choose a profile.',
+  claim: 'Set up a new instance with its owner-claim code.',
+  recover: 'Reset access with a recovery code.',
+};
 export interface AccessFormCopy {
   login: string;
   household: string;
   claim: string;
   recover: string;
   name: string;
+  householdAccountLabel?: string;
+  householdAccount?: string;
   password: string;
   code: string;
   passkey: string;
@@ -33,6 +41,8 @@ export const defaultAccessFormCopy: AccessFormCopy = {
   claim: 'Claim instance',
   recover: 'Recover account',
   name: 'Account name',
+  householdAccountLabel: 'Shared account',
+  householdAccount: 'Household',
   password: 'Password',
   code: 'Recovery or owner-claim code',
   passkey: 'Sign in with a passkey',
@@ -66,9 +76,19 @@ export interface AccessFormProps {
   modes?: AccessFormMode[];
   claimModes?: Array<'household' | 'individual'>;
   copy?: Partial<AccessFormCopy>;
+  modeDescriptions?: Partial<Record<AccessFormMode, string>>;
   classes?: Partial<
     Record<
-      'root' | 'form' | 'navigation' | 'label' | 'input' | 'button' | 'secondary' | 'error' | 'hint',
+      | 'root'
+      | 'form'
+      | 'navigation'
+      | 'modeDescription'
+      | 'label'
+      | 'input'
+      | 'button'
+      | 'secondary'
+      | 'error'
+      | 'hint',
       string
     >
   >;
@@ -82,11 +102,13 @@ export function AccessForm({
   modes = ['login', 'household', 'recover', 'claim'],
   claimModes = ['household', 'individual'],
   copy,
+  modeDescriptions,
   classes = {},
   onSignedIn,
 }: AccessFormProps) {
   const client = useMemo(() => new AccessClient({ endpoint }), [endpoint]);
   const labels = { ...defaultAccessFormCopy, ...copy };
+  const descriptions = { ...accessModeDescriptions, ...modeDescriptions };
   const id = useId();
   const [selectedMode, setMode] = useState(initialMode);
   if (!modes.length) throw new Error('AccessForm requires at least one permitted mode');
@@ -245,7 +267,10 @@ export function AccessForm({
             key={value}
             type="button"
             className={classes.secondary}
+            aria-label={labels[value]}
             aria-pressed={mode === value}
+            aria-describedby={`${id}-${value}-description`}
+            title={descriptions[value]}
             disabled={busy}
             onClick={() => {
               setMode(value);
@@ -255,6 +280,9 @@ export function AccessForm({
             }}
           >
             {labels[value]}
+            <span id={`${id}-${value}-description`} className={classes.modeDescription}>
+              {descriptions[value]}
+            </span>
           </button>
         ))}
       </nav>
@@ -265,6 +293,23 @@ export function AccessForm({
           void submit();
         }}
       >
+        {mode === 'household' && !openHousehold && (
+          <>
+            <label className={classes.label} htmlFor={`${id}-household-account`}>
+              {labels.householdAccountLabel}
+            </label>
+            <input
+              id={`${id}-household-account`}
+              className={classes.input}
+              type="text"
+              name="username"
+              value={labels.householdAccount ?? 'Household'}
+              autoComplete="username"
+              readOnly
+              tabIndex={-1}
+            />
+          </>
+        )}
         {(mode === 'login' || mode === 'claim') && (
           <>
             <label className={classes.label} htmlFor={`${id}-name`}>
