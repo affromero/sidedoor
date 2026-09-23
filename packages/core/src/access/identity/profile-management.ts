@@ -42,7 +42,7 @@ export class HouseholdProfileManagement {
       throw new AccessError('forbidden');
     if (credential.kind === 'session') {
       const { principal } = this.access.sessionFromState(state, credential.token);
-      if (principal?.role === 'owner') return true;
+      if (this.access.householdOwnerFromState(state, credential.token)) return true;
       if (principal === null && this.options.allowHouseholdManagement) return false;
       throw new AccessError('forbidden');
     }
@@ -72,13 +72,7 @@ export class HouseholdProfileManagement {
         const owner = this.authorize(state, credential);
         const profile = state.householdProfiles!.find((item) => item.id === id);
         const principal = state.principals.find((item) => item.id === id);
-        if (
-          !profile ||
-          !principal ||
-          principal.passwordHash !== null ||
-          state.passkeys.some((key) => key.principalId === id)
-        )
-          throw new AccessError('forbidden');
+        if (!profile || !principal) throw new AccessError('forbidden');
         if (!owner && (principal.role === 'owner' || principal.pendingRole === 'owner'))
           throw new AccessError('forbidden');
         if (name !== undefined) profile.name = name;
@@ -98,13 +92,7 @@ export class HouseholdProfileManagement {
         const profile = state.householdProfiles!.find((item) => item.id === id);
         const principal = state.principals.find((item) => item.id === id);
         if (!profile || profile.epoch !== epoch) throw new AccessError('conflict');
-        if (
-          !principal ||
-          principal.role !== 'member' ||
-          principal.pendingRole ||
-          principal.passwordHash !== null ||
-          state.passkeys.some((key) => key.principalId === id)
-        )
+        if (!principal || principal.role !== 'member' || principal.pendingRole)
           throw new AccessError('forbidden');
         if (state.householdProfiles!.length <= (this.options.minimumProfiles ?? 0))
           throw new AccessError('conflict', 'The last household profile cannot be deleted');

@@ -64,6 +64,7 @@ export interface AccessFormProps {
   endpoint?: string;
   initialMode?: AccessFormMode;
   modes?: AccessFormMode[];
+  claimModes?: Array<'household' | 'individual'>;
   copy?: Partial<AccessFormCopy>;
   classes?: Partial<
     Record<
@@ -79,6 +80,7 @@ export function AccessForm({
   endpoint,
   initialMode = 'login',
   modes = ['login', 'household', 'recover', 'claim'],
+  claimModes = ['household', 'individual'],
   copy,
   classes = {},
   onSignedIn,
@@ -88,11 +90,13 @@ export function AccessForm({
   const id = useId();
   const [selectedMode, setMode] = useState(initialMode);
   if (!modes.length) throw new Error('AccessForm requires at least one permitted mode');
+  if (!claimModes.length) throw new Error('AccessForm requires at least one claim mode');
   const mode = modes.includes(selectedMode) ? selectedMode : modes[0]!;
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [accessMode, setAccessMode] = useState<'household' | 'individual'>('household');
+  const [accessMode, setAccessMode] = useState<'household' | 'individual'>(claimModes[0]!);
+  const claimMode = claimModes.includes(accessMode) ? accessMode : claimModes[0]!;
   const [passkeys, setPasskeys] = useState(false);
   const [householdPasskeys, setHouseholdPasskeys] = useState(false);
   const [pendingSession, setPendingSession] = useState<BrowserSession | null>(null);
@@ -158,7 +162,7 @@ export function AccessForm({
           ? await client.enterOpenHousehold(controller.signal)
           : await client.enterHousehold(password, controller.signal);
       else if (mode === 'claim')
-        session = await client.claim(code, name, password, accessMode, controller.signal);
+        session = await client.claim(code, name, password, claimMode, controller.signal);
       else session = await client.recover(code, password, controller.signal);
       if (!controller.signal.aborted) {
         setPassword('');
@@ -172,9 +176,13 @@ export function AccessForm({
       if (!controller.signal.aborted) setBusy(false);
     }
     if (session && !controller.signal.aborted) {
-      if (mode === 'household' && !passkey && !openHousehold) await capabilitiesPending.current;
-      if (mode === 'household' && !passkey && !openHousehold && supportsPasskeys.current)
-        setPendingSession(session);
+      const canEnrollHousehold =
+        !passkey &&
+        ((mode === 'household' && !openHousehold) ||
+          (mode === 'claim' && claimMode === 'household') ||
+          (mode === 'recover' && session.principal === null));
+      if (canEnrollHousehold) await capabilitiesPending.current;
+      if (canEnrollHousehold && supportsPasskeys.current) setPendingSession(session);
       else onSignedIn(session);
     }
   };
@@ -319,7 +327,7 @@ export function AccessForm({
             {labels.newPasswordHint}
           </p>
         )}
-        {mode === 'claim' && (
+        {mode === 'claim' && claimModes.length > 1 && (
           <>
             <label className={classes.label} htmlFor={`${id}-mode`}>
               {labels.mode}
@@ -327,14 +335,17 @@ export function AccessForm({
             <select
               id={`${id}-mode`}
               className={classes.input}
-              value={accessMode}
+              value={claimMode}
               onChange={(event) =>
                 setAccessMode(event.target.value === 'individual' ? 'individual' : 'household')
               }
               disabled={busy}
             >
-              <option value="household">{labels.householdMode}</option>
-              <option value="individual">{labels.individualMode}</option>
+              {claimModes.map((value) => (
+                <option key={value} value={value}>
+                  {value === 'household' ? labels.householdMode : labels.individualMode}
+                </option>
+              ))}
             </select>
           </>
         )}

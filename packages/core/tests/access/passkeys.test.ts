@@ -7,6 +7,7 @@ import type { RegistrationResponseJSON, AuthenticationResponseJSON } from '@simp
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AccessService,
+  HouseholdProfileService,
   PasskeyService,
   accessStateSchema,
   initialAccessState,
@@ -109,7 +110,7 @@ async function fixture() {
     await access.issueOperatorToken(),
     'Owner',
     'a long owner password',
-    'household',
+    'individual',
   );
   const passkeys = new PasskeyService({ access, origin, name: 'Test' });
   const device = authenticator();
@@ -124,11 +125,23 @@ async function fixture() {
   return { access, owner, passkeys, device };
 }
 
+async function householdFixture() {
+  const result = await fixture();
+  await result.access.setMode(result.owner, 'household');
+  await result.access.configureHousehold(result.owner, 'a long household password');
+  const ownerId = (await result.access.store.read()).principals.find(
+    (principal) => principal.role === 'owner',
+  )!.id;
+  const owner = await result.access.enterHousehold('a long household password');
+  await new HouseholdProfileService(result.access).select(owner, ownerId);
+  return { ...result, owner, ownerId };
+}
+
 describe('passkey authentication', () => {
-  it('enrolls after a household password and returns to household access without owner authority', async () => {
-    const { access, owner, passkeys } = await fixture();
-    await access.configureHousehold(owner, 'a long household password');
+  it('enrolls after the shared password and grants Admin only after profile selection', async () => {
+    const { access, owner, ownerId, passkeys } = await householdFixture();
     const household = await access.enterHousehold('a long household password');
+    expect((await access.authenticate(household)).session.admission).toBe('password');
     const device = authenticator();
     const registration = await passkeys.householdRegistrationOptions(household, origin);
     await passkeys.registerHousehold(
@@ -146,16 +159,18 @@ describe('passkey authentication', () => {
     const challenge = await passkeys.householdAuthenticationOptions(binding, origin);
     const assertion = device.login(challenge.options.challenge, 1);
     const token = await passkeys.loginHousehold(binding, challenge.ceremony, assertion, origin);
+    expect((await access.authenticate(token)).session.admission).toBe('passkey');
     expect((await access.authenticate(token)).principal).toBeNull();
     await expect(access.authenticate(token, true)).rejects.toMatchObject({ code: 'forbidden' });
+    await new HouseholdProfileService(access).select(token, ownerId);
+    expect((await access.authenticate(token, true)).principal?.id).toBe(ownerId);
     await expect(
       passkeys.loginHousehold(binding, challenge.ceremony, assertion, origin),
     ).rejects.toMatchObject({ code: 'unauthorized' });
   });
 
   it('rejects household enrollment without a fresh password-entry grant and never crosses passkey scopes', async () => {
-    const { access, owner, passkeys, device } = await fixture();
-    await access.configureHousehold(owner, 'a long household password');
+    const { access, passkeys, device } = await householdFixture();
     const invited = await access.store.transact((state) => access.issueSession(state, null, 'Invited'));
     await expect(passkeys.householdRegistrationOptions(invited, origin)).rejects.toMatchObject({
       code: 'forbidden',
@@ -173,16 +188,9 @@ describe('passkey authentication', () => {
     await expect(passkeys.householdRegistrationOptions(household, origin)).rejects.toMatchObject({
       code: 'forbidden',
     });
-    const accountBinding = newToken();
-    const accountChallenge = await passkeys.authenticationOptions(accountBinding, origin);
-    await expect(
-      passkeys.login(
-        accountBinding,
-        accountChallenge.ceremony,
-        householdDevice.login(accountChallenge.options.challenge, 1),
-        origin,
-      ),
-    ).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(passkeys.authenticationOptions(newToken(), origin)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
     const householdBinding = newToken();
     const householdChallenge = await passkeys.householdAuthenticationOptions(householdBinding, origin);
     await expect(
@@ -196,8 +204,7 @@ describe('passkey authentication', () => {
   });
 
   it('revokes household passkeys when the shared password changes', async () => {
-    const { access, owner, passkeys } = await fixture();
-    await access.configureHousehold(owner, 'a long household password');
+    const { access, owner, passkeys } = await householdFixture();
     const household = await access.enterHousehold('a long household password');
     const device = authenticator();
     const registration = await passkeys.householdRegistrationOptions(household, origin);
@@ -216,8 +223,7 @@ describe('passkey authentication', () => {
   });
 
   it('lets the owner revoke one household passkey without removing the others', async () => {
-    const { access, owner, passkeys } = await fixture();
-    await access.configureHousehold(owner, 'a long household password');
+    const { access, owner, ownerId, passkeys } = await householdFixture();
     for (const name of ['Mac', 'Phone']) {
       const household = await access.enterHousehold('a long household password');
       const registration = await passkeys.householdRegistrationOptions(household, origin);
@@ -232,7 +238,9 @@ describe('passkey authentication', () => {
     const before = await passkeys.listHousehold(owner);
     expect(before.map((key) => key.name)).toEqual(['Mac', 'Phone']);
     await passkeys.removeHousehold(owner, before[0]!.id);
-    expect((await passkeys.listHousehold(owner)).map((key) => key.name)).toEqual(['Phone']);
+    const replacement = await access.enterHousehold('a long household password');
+    await new HouseholdProfileService(access).select(replacement, ownerId);
+    expect((await passkeys.listHousehold(replacement)).map((key) => key.name)).toEqual(['Phone']);
     expect(await passkeys.hasHouseholdPasskeys()).toBe(true);
   });
 

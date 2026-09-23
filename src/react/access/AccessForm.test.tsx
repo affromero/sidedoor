@@ -8,6 +8,18 @@ afterEach(() => {
 });
 
 describe('shared access form', () => {
+  it('keeps claim setup to the host permitted household mode', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    render(
+      <AccessForm initialMode="claim" modes={['claim']} claimModes={['household']} onSignedIn={() => {}} />,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Access mode' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(2);
+  });
+
   it('offers passkey enrollment after household password entry before opening the profile picker', async () => {
     vi.stubGlobal('PublicKeyCredential', class {});
     vi.stubGlobal(

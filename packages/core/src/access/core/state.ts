@@ -22,6 +22,7 @@ export const sessionSchema = z.object({
   authenticatedAt: z.number(),
   expiresAt: z.number(),
   householdEnrollmentAvailable: z.boolean().optional(),
+  admission: z.enum(['password', 'passkey', 'invitation', 'open']).optional(),
 });
 export const passkeyTransportsSchema = z.array(
   z.enum(['usb', 'nfc', 'ble', 'cable', 'internal', 'hybrid', 'smart-card']),
@@ -123,6 +124,7 @@ export const accessStateSchema = z.object({
         id: z.string().min(1),
         name: z.string().min(1),
         epoch: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+        ownerPrincipalId: z.string().min(1).optional(),
       }),
     )
     .refine(

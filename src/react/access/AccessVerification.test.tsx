@@ -8,6 +8,11 @@ it('verifies in place and clears the password without replacing an unfinished se
   const sessions: unknown[] = [];
   vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
     if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+    if (url.endsWith('/session'))
+      return Response.json({
+        principal: { id: 'owner', name: 'Owner', role: 'owner' },
+        expiresAt: Date.now() + 60_000,
+      });
     expect(url).toContain('/reauthenticate');
     expect(JSON.parse(String(options.body))).toEqual({ password: 'owner password' });
     return Response.json({
@@ -26,4 +31,16 @@ it('verifies in place and clears the password without replacing an unfinished se
   await waitFor(() => expect(sessions).toHaveLength(1));
   expect((screen.getByLabelText('Current password') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Unfinished setting') as HTMLInputElement).value).toBe('draft value');
+});
+
+it('accepts the selected household Admin without asking for a second password', async () => {
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+    if (url.endsWith('/session')) return Response.json({ principal: null, expiresAt: Date.now() + 60_000 });
+    if (url.endsWith('/authorize-owner')) return Response.json({ ok: true });
+    throw new Error(`Unexpected endpoint: ${url}`);
+  });
+  render(<AccessVerification />);
+  expect(await screen.findByText('Identity verified')).toBeTruthy();
+  expect(screen.queryByLabelText('Current password')).toBeNull();
 });

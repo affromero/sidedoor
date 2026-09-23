@@ -2,14 +2,20 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { AccessService, PrincipalManagement, accessStateSchema, initialAccessState } from '../../src/access';
+import {
+  AccessService,
+  HouseholdProfileService,
+  PrincipalManagement,
+  accessStateSchema,
+  initialAccessState,
+} from '../../src/access';
 import { FileStateStore } from '../../src/storage';
 
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
-async function fixture() {
+async function fixture(mode: 'household' | 'individual' = 'individual') {
   const directory = await mkdtemp(join(tmpdir(), 'sidedoor-principals-'));
   directories.push(directory);
   const access = new AccessService({
@@ -23,32 +29,43 @@ async function fixture() {
     await access.issueOperatorToken(),
     'Owner',
     'owner password for testing',
-    'household',
+    mode,
   );
+  if (mode === 'household') {
+    const ownerId = (await access.store.read()).principals.find(
+      (principal) => principal.role === 'owner',
+    )!.id;
+    await new HouseholdProfileService(access).select(owner, ownerId);
+  }
   return { access, owner, management: new PrincipalManagement(access) };
 }
 
 it('preserves passwordless household profiles while requiring credentials for ownership and individual accounts', async () => {
-  const { access, owner, management } = await fixture();
+  const { access, owner, management } = await fixture('household');
   const id = await management.mutate(owner, { kind: 'create', name: 'Member' });
   await expect(management.mutate(owner, { kind: 'update', id, role: 'owner' })).rejects.toMatchObject({
-    code: 'invalid',
+    code: 'forbidden',
   });
-  await expect(access.setRole(owner, id, 'owner')).rejects.toMatchObject({ code: 'invalid' });
+  await expect(access.setRole(owner, id, 'owner')).rejects.toMatchObject({ code: 'forbidden' });
   await expect(management.mutate(owner, { kind: 'create', name: 'member' })).rejects.toMatchObject({
     code: 'conflict',
   });
-  await management.mutate(owner, {
-    kind: 'update',
-    id,
-    role: 'owner',
-    password: 'member password for testing',
-  });
-  expect(
-    (await access.authenticate(await access.login('Member', 'member password for testing'))).principal?.role,
-  ).toBe('owner');
+  await expect(
+    management.mutate(owner, {
+      kind: 'update',
+      id,
+      role: 'owner',
+      password: 'member password for testing',
+    }),
+  ).rejects.toMatchObject({ code: 'forbidden' });
+  expect((await access.store.read()).principals.find((principal) => principal.id === id)?.role).toBe(
+    'member',
+  );
   await access.setMode(owner, 'individual');
-  await expect(management.mutate(owner, { kind: 'create', name: 'Passwordless' })).rejects.toMatchObject({
+  const individualOwner = await access.login('Owner', 'owner password for testing');
+  await expect(
+    management.mutate(individualOwner, { kind: 'create', name: 'Passwordless' }),
+  ).rejects.toMatchObject({
     code: 'invalid',
   });
 });

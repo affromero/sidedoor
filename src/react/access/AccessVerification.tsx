@@ -52,6 +52,7 @@ export function AccessVerification({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [verified, setVerified] = useState(false);
+  const [householdAdmin, setHouseholdAdmin] = useState(false);
   const active = useRef<AbortController | null>(null);
   const alert = useRef<HTMLParagraphElement>(null);
   const busyChange = useRef(onBusyChange);
@@ -64,7 +65,19 @@ export function AccessVerification({
     setPasskeys(false);
     setError('');
     setVerified(false);
+    setHouseholdAdmin(false);
     setBusy(false);
+    void client
+      .session(controller.signal)
+      .then(async (session) => {
+        if (session.principal || controller.signal.aborted) return;
+        await client.mutation('authorize-owner', {}, controller.signal);
+        if (!controller.signal.aborted) setHouseholdAdmin(true);
+      })
+      .catch((failure) => {
+        if (!controller.signal.aborted)
+          setError(failure instanceof AccessClientError ? failure.code : 'request_failed');
+      });
     void client
       .capabilities(controller.signal)
       .then((capabilities) => {
@@ -112,6 +125,12 @@ export function AccessVerification({
     }
     if (session && !controller.signal.aborted) onVerified?.(session);
   };
+  if (householdAdmin)
+    return (
+      <p role="status" className={classes.hint}>
+        {labels.verified}
+      </p>
+    );
   return (
     <form
       className={classes.form}

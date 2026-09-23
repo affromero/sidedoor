@@ -95,7 +95,10 @@ export class DeviceService {
         if (!profile || profile.id !== options.defaultProfileId) throw new AccessError('forbidden');
         binding = { defaultProfileId: profile.id, defaultProfileEpoch: profile.epoch };
       }
-      const allowed = this.options.scopesFor(auth.principal);
+      const authority = binding
+        ? auth.principal
+        : (this.options.access.householdOwnerForSession(state, auth.session) ?? auth.principal);
+      const allowed = this.options.scopesFor(authority);
       if (scopes.some((scope) => !allowed.includes(scope))) throw new AccessError('forbidden');
       const now = this.options.access.now();
       state.tokens = state.tokens.filter((item) => item.expiresAt > now);
@@ -108,8 +111,8 @@ export class DeviceService {
       state.tokens.push({
         id: tokenHash(raw),
         kind: 'pair',
-        principalId: auth.principal?.id ?? null,
-        epoch: auth.session.epoch,
+        principalId: authority?.id ?? null,
+        epoch: authority?.epoch ?? auth.session.epoch,
         issuerSessionId: auth.session.id,
         scopes: [...new Set(scopes)],
         deviceName: name.trim(),
@@ -135,7 +138,14 @@ export class DeviceService {
       )
         throw new AccessError('unauthorized');
       const issuer = state.sessions.find((item) => item.id === pair.issuerSessionId && item.expiresAt > now);
-      if (!issuer || issuer.principalId !== pair.principalId || issuer.epoch !== pair.epoch)
+      const householdIssuer = issuer && this.options.access.householdOwnerForSession(state, issuer);
+      if (
+        !issuer ||
+        !(
+          (issuer.principalId === pair.principalId && issuer.epoch === pair.epoch) ||
+          (householdIssuer?.id === pair.principalId && householdIssuer.epoch === pair.epoch)
+        )
+      )
         throw new AccessError('unauthorized');
       const principal = this.principal(state, pair.principalId, pair.epoch);
       if (
@@ -290,7 +300,7 @@ export class DeviceService {
     return state.deviceTokens.filter(
       (device) =>
         (device.expiresAt === null || device.expiresAt > this.options.access.now()) &&
-        (auth.principal?.role === 'owner' ||
+        (this.options.access.householdOwnerFromState(state, sessionToken) ||
           (auth.principal
             ? device.principalId === auth.principal.id
             : device.issuerSessionId === auth.session.id)),
@@ -303,7 +313,7 @@ export class DeviceService {
       const device = state.deviceTokens.find((item) => item.id === id);
       if (!device) return;
       if (
-        auth.principal?.role !== 'owner' &&
+        !this.options.access.householdOwnerFromState(state, sessionToken) &&
         (auth.principal
           ? device.principalId !== auth.principal.id
           : device.issuerSessionId !== auth.session.id)

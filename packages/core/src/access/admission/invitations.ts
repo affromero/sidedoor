@@ -91,7 +91,13 @@ export class InvitationService {
       if (current.remaining === 1)
         state.invitations = state.invitations.filter((item) => item.id !== current.id);
       else if (current.remaining !== null) current.remaining--;
-      return this.access.issueSession(state, principalId, 'Invited browser');
+      return this.access.issueSession(
+        state,
+        principalId,
+        'Invited browser',
+        false,
+        current.mode === 'household' ? 'invitation' : undefined,
+      );
     });
   }
 

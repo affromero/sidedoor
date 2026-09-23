@@ -66,6 +66,8 @@ export class PasskeyService extends PasskeyManagement {
     this.checkOrigin(origin);
     const state = await this.access.store.read();
     const { principal, session } = this.access.sessionFromState(state, token, false, true);
+    if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
     if (
       household
         ? principal || !session.householdEnrollmentAvailable || !state.householdPasswordHash
@@ -90,6 +92,8 @@ export class PasskeyService extends PasskeyManagement {
     const ceremony = newToken();
     await this.access.store.transact((current) => {
       const currentAuth = this.access.sessionFromState(current, token, false, true);
+      if (!household && current.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       if (
         household &&
         (currentAuth.principal ||
@@ -184,6 +188,8 @@ export class PasskeyService extends PasskeyManagement {
     const info = result.registrationInfo;
     await this.access.store.transact((state) => {
       const { principal, session } = this.access.sessionFromState(state, token, false, true);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       if (
         household
           ? principal ||
@@ -241,6 +247,12 @@ export class PasskeyService extends PasskeyManagement {
     this.checkOrigin(origin);
     if (binding.length < 32 || binding.length > 128) throw new AccessError('invalid');
     let allowCredentials: Pick<Passkey, 'id' | 'transports'>[] | undefined;
+    if (
+      !household &&
+      (await this.access.store.read()).mode === 'household' &&
+      !this.access.allowPrincipalAccessInHousehold
+    )
+      throw new AccessError('forbidden');
     if (household) {
       const state = await this.access.store.read();
       if (state.mode !== 'household' || !state.householdPasswordHash) throw new AccessError('forbidden');
@@ -329,6 +341,8 @@ export class PasskeyService extends PasskeyManagement {
   ): Promise<string> {
     this.checkOrigin(origin);
     const snapshot = await this.access.store.read();
+    if (!household && snapshot.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+      throw new AccessError('unauthorized');
     const challenge = snapshot.challenges.find((item) => item.id === tokenHash(ceremony));
     const kind =
       originalToken === undefined
@@ -377,6 +391,8 @@ export class PasskeyService extends PasskeyManagement {
       throw new AccessError('unauthorized');
     await this.access.store.transact((state) => {
       const pending = state.challenges.find((item) => item.id === challenge.id);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('unauthorized');
       if (!pending || !sameChallenge(pending, challenge) || pending.expiresAt <= this.access.now())
         throw new AccessError('unauthorized');
       if ((pending.verificationAttempts ?? 0) >= 5) throw new AccessError('rate_limited');
@@ -398,6 +414,8 @@ export class PasskeyService extends PasskeyManagement {
     if (!result.verified) throw new AccessError('unauthorized');
     return this.access.store.transact((state) => {
       const pending = state.challenges.find((item) => item.id === challenge.id);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('unauthorized');
       if (!pending || pending.expiresAt <= this.access.now() || !sameChallenge(pending, challenge))
         throw new AccessError('unauthorized');
       if (originalToken !== undefined) {
@@ -428,7 +446,13 @@ export class PasskeyService extends PasskeyManagement {
       current.counter = result.authenticationInfo.newCounter;
       current.backedUp = result.authenticationInfo.credentialBackedUp;
       state.challenges = state.challenges.filter((item) => item.id !== challenge.id);
-      return this.access.issueSession(state, household ? null : principal!.id, name);
+      return this.access.issueSession(
+        state,
+        household ? null : principal!.id,
+        name,
+        false,
+        household ? 'passkey' : undefined,
+      );
     });
   }
 }

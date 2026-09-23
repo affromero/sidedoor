@@ -78,6 +78,14 @@ export class PrincipalManagement {
     return this.access.store.transact((state) => {
       const principal = state.principals.find((item) => item.id === id);
       if (!principal) throw new AccessError('invalid');
+      if (state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold) {
+        if (principal.role !== 'owner') throw new AccessError('forbidden');
+        state.householdPasswordHash = encoded;
+        state.householdEpoch++;
+        state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+        state.sessions = [];
+        state.challenges = state.challenges.filter((item) => !item.kind.endsWith('-household'));
+      }
       principal.passwordHash = encoded;
       principal.epoch++;
       revokePrincipalAccess(state, principal, false);
@@ -116,6 +124,12 @@ export class PrincipalManagement {
       apply: (state, ownerToken) => {
         const actor = this.access.sessionFromState(state, ownerToken, true, true).principal;
         if (!actor) throw new AccessError('forbidden');
+        if (
+          state.mode === 'household' &&
+          !this.access.allowPrincipalAccessInHousehold &&
+          (encoded || requestedRole === 'owner')
+        )
+          throw new AccessError('forbidden');
         if (kind === 'create') {
           const role = requestedRole ?? 'member';
           createPrincipalFromState(state, {

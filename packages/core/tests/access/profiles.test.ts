@@ -7,7 +7,7 @@ import {
   HouseholdProfileService,
   HouseholdProfileManagement,
   DeviceService,
-  PrincipalManagement,
+  InvitationService,
   accessStateSchema,
   initialAccessState,
 } from '../../src/access';
@@ -32,7 +32,8 @@ async function fixture() {
     'owner password for testing',
     'household',
   );
-  await access.configureHousehold(owner, 'household password for testing');
+  const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+  await new HouseholdProfileService(access).select(owner, ownerId);
   await store.transact((state) => {
     state.principals.push({
       id: 'profile',
@@ -52,12 +53,12 @@ async function fixture() {
       createdAt: Date.now(),
     });
   });
-  const guest = await access.enterHousehold('household password for testing');
+  const guest = await access.enterHousehold('owner password for testing');
   return { access, store, owner, guest, profiles: new HouseholdProfileService(access) };
 }
 
 describe('household profiles', () => {
-  it('protects minimum profile counts, pending owners and profiles converted to private accounts', async () => {
+  it('protects minimum counts and pending owners while keeping household members manageable', async () => {
     const { access, store, guest } = await fixture();
     await store.transact((state) => {
       state.householdProfiles = [
@@ -82,10 +83,8 @@ describe('household profiles', () => {
     await store.transact((state) => {
       state.principals.find((principal) => principal.id === 'profile')!.passwordHash = 'credentialed';
     });
-    await expect(
-      store.transact((state) => prepared.apply(state, { kind: 'session', token: guest })),
-    ).rejects.toMatchObject({ code: 'forbidden' });
-    expect((await store.read()).householdProfiles).toHaveLength(2);
+    await store.transact((state) => prepared.apply(state, { kind: 'session', token: guest }));
+    expect((await store.read()).householdProfiles).toHaveLength(1);
   });
   it('removes profile-bound authority while retaining household admission and unrelated owner sessions', async () => {
     const { access, store, guest, owner } = await fixture();
@@ -108,7 +107,7 @@ describe('household profiles', () => {
     const removal = management.prepareRemove('profile', 2, true);
     await store.transact((state) => removal.apply(state, { kind: 'session', token: guest }));
     expect((await access.authenticate(guest)).principal).toBeNull();
-    expect((await access.authenticate(owner)).principal?.role).toBe('owner');
+    expect((await access.authenticate(owner)).principal).toBeNull();
     expect(await profiles.selected(guest)).toBeNull();
     await expect(devices.authenticate(token, ['app'])).rejects.toMatchObject({ code: 'unauthorized' });
     await expect(devices.redeemPairing(pending)).rejects.toMatchObject({ code: 'unauthorized' });
@@ -128,9 +127,9 @@ describe('household profiles', () => {
     await store.transact((current) => {
       current.principals.find((principal) => principal.id === 'profile')!.passwordHash = 'credentialed';
     });
-    await expect(
-      store.transact((current) => update.apply(current, { kind: 'session', token: guest })),
-    ).rejects.toMatchObject({ code: 'forbidden' });
+    const credentialedUpdate = management.prepareUpdate('profile', 'Credentialed label');
+    await store.transact((current) => credentialedUpdate.apply(current, { kind: 'session', token: guest }));
+    expect((await store.read()).householdProfiles?.[0]?.name).toBe('Credentialed label');
   });
   it('creates duplicate household labels with distinct login names and rolls back failed application work', async () => {
     const { access, store, owner, guest } = await fixture();
@@ -168,9 +167,11 @@ describe('household profiles', () => {
 
   it('requires delegated owner scope for native owner profile creation and revalidates prepared credentials', async () => {
     const { access, store, owner } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     await store.transact((state) => {
-      state.householdProfiles = [];
+      state.householdProfiles = [{ id: ownerId, name: 'Admin', epoch: 0 }];
     });
+    await new HouseholdProfileService(access).select(owner, ownerId);
     const devices = new DeviceService({ access, scopesFor: () => ['app', 'owner'] });
     const management = new HouseholdProfileManagement(access, {
       devices,
@@ -194,9 +195,14 @@ describe('household profiles', () => {
   });
   it('preserves household device profile creation without granting principal authority', async () => {
     const { access, store, owner, guest } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     await store.transact((state) => {
-      state.householdProfiles = [{ id: 'profile', name: 'Learner', epoch: 0 }];
+      state.householdProfiles = [
+        { id: ownerId, name: 'Admin', epoch: 0 },
+        { id: 'profile', name: 'Learner', epoch: 0 },
+      ];
     });
+    await new HouseholdProfileService(access).select(owner, ownerId);
     await new HouseholdProfileService(access).select(guest, 'profile');
     const devices = new DeviceService({ access, scopesFor: () => ['app'] });
     const token = await devices.redeemPairing(
@@ -221,26 +227,32 @@ describe('household profiles', () => {
       store.transact((state) => other.apply(state, { kind: 'device', token })),
     ).rejects.toMatchObject({ code: 'unauthorized' });
   });
-  it('selects independently shared owner content without granting principal authority', async () => {
+  it('grants Admin settings after household password entry and Admin selection, then removes them on switch', async () => {
     const { access, store, owner, guest, profiles } = await fixture();
-    const principal = (await access.authenticate(owner)).principal!;
+    const principal = (await access.authenticate(owner, true)).principal!;
     await store.transact((state) => {
       state.householdProfiles = [{ id: principal.id, name: 'Shared owner library', epoch: 1 }];
     });
+    await profiles.select(owner, principal.id);
+    await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
     await profiles.select(guest, principal.id);
     expect(await profiles.selected(guest)).toEqual({ id: principal.id, name: 'Shared owner library' });
     expect((await access.authenticate(guest)).principal).toBeNull();
-    await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
-    await new PrincipalManagement(access).resetPasswordForOperator(
-      principal.id,
-      'replacement owner password',
+    expect((await access.authenticate(guest, true)).principal?.id).toBe(principal.id);
+    const invited = await new InvitationService(access).redeem(
+      await new InvitationService(access).issue(owner),
     );
-    expect(await profiles.selected(guest)).toEqual({ id: principal.id, name: 'Shared owner library' });
+    await profiles.select(invited, principal.id);
+    expect((await access.authenticate(invited, true)).principal?.id).toBe(principal.id);
+    await profiles.select(guest, null);
+    await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
+    await profiles.select(guest, principal.id);
     await store.transact((state) => {
       state.householdProfiles = [];
     });
     expect(await profiles.list(guest)).toEqual([]);
     expect(await profiles.selected(guest)).toBeNull();
+    await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
     await store.transact((state) => {
       state.householdProfiles = [{ id: principal.id, name: 'Recreated library', epoch: 2 }];
     });
@@ -277,41 +289,19 @@ describe('household profiles', () => {
     expect(await profiles.enterOpen('profile', token)).toBe(token);
   });
 
-  it('never resolves a protected profile when open admission races credential enrollment', async () => {
-    const { store, owner } = await fixture();
-    const access = new AccessService({ store, allowOpenHousehold: true });
-    const profiles = new HouseholdProfileService(access);
-    await access.configureHousehold(owner, null);
-    const [admission, protection] = await Promise.allSettled([
-      profiles.enterOpen('profile'),
-      store.transact((state) => {
-        const profile = state.principals.find((principal) => principal.id === 'profile')!;
-        profile.passwordHash = 'externally configured credential';
-        profile.epoch++;
-      }),
-    ]);
-    expect(protection.status).toBe('fulfilled');
-    if (admission.status === 'fulfilled') expect(await profiles.selected(admission.value)).toBeNull();
-    else expect(admission.reason).toMatchObject({ code: 'forbidden' });
-  });
-
-  it('never resolves a protected profile when selection races its first credential', async () => {
+  it('invalidates a selected profile when its generation changes', async () => {
     const { store, guest, profiles } = await fixture();
-    const [selection, protection] = await Promise.allSettled([
-      profiles.select(guest, 'profile'),
-      store.transact((state) => {
-        const profile = state.principals.find((principal) => principal.id === 'profile')!;
-        profile.passwordHash = 'new externally configured credential';
-        profile.epoch++;
-      }),
-    ]);
-    expect(protection.status).toBe('fulfilled');
-    if (selection.status === 'rejected') expect(selection.reason).toMatchObject({ code: 'forbidden' });
+    await profiles.select(guest, 'profile');
+    await store.transact((state) => {
+      const profile = state.principals.find((principal) => principal.id === 'profile')!;
+      profile.epoch++;
+    });
     expect(await profiles.selected(guest)).toBeNull();
   });
 
   it('requires explicit open admission and keeps concurrent gate enable authoritative', async () => {
     const { access, store, owner } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     const open = new AccessService({ store, allowOpenHousehold: true });
     await open.configureHousehold(owner, null);
     await expect(access.enterOpenHousehold()).rejects.toMatchObject({ code: 'forbidden' });
@@ -320,9 +310,10 @@ describe('household profiles', () => {
     const expiry = (await open.authenticate(admitted)).session.expiresAt;
     expect(await open.enterOpenHousehold('Same browser', admitted)).toBe(admitted);
     expect((await open.authenticate(admitted)).session.expiresAt).toBe(expiry);
+    await new HouseholdProfileService(open).select(admitted, ownerId);
     const [admission, rotation] = await Promise.allSettled([
       open.enterOpenHousehold(),
-      access.configureHousehold(owner, 'concurrent gate password'),
+      access.configureHousehold(admitted, 'concurrent gate password'),
     ]);
     expect(rotation.status).toBe('fulfilled');
     if (admission.status === 'fulfilled')
@@ -331,8 +322,12 @@ describe('household profiles', () => {
     await expect(open.authenticate(admitted)).rejects.toMatchObject({ code: 'unauthorized' });
     await expect(open.enterOpenHousehold()).rejects.toMatchObject({ code: 'forbidden' });
     expect(await open.supportsOpenHousehold()).toBe(false);
-    await open.configureHousehold(owner, null);
-    await access.setMode(owner, 'individual');
+    const replacement = await open.enterHousehold('concurrent gate password');
+    await new HouseholdProfileService(open).select(replacement, ownerId);
+    await open.configureHousehold(replacement, null);
+    const openAdmin = await open.enterOpenHousehold();
+    await new HouseholdProfileService(open).select(openAdmin, ownerId);
+    await access.setMode(openAdmin, 'individual');
     await expect(open.enterOpenHousehold()).rejects.toMatchObject({ code: 'forbidden' });
   });
 
@@ -343,16 +338,17 @@ describe('household profiles', () => {
     await open.configureHousehold(owner, null);
     for (let index = 0; index < 120; index++) await open.enterOpenHousehold();
     await expect(open.enterOpenHousehold()).rejects.toMatchObject({ code: 'rate_limited' });
-    expect(
-      (await open.authenticate(await open.login('Owner', 'owner password for testing'))).principal?.role,
-    ).toBe('owner');
+    expect((await store.read()).failures.some((failure) => failure.key === 'rate:household')).toBe(false);
     now += 60_001;
     expect((await open.authenticate(await open.enterOpenHousehold())).principal).toBeNull();
   });
 
-  it('selects content without authenticating an account or exposing dormant administrators', async () => {
+  it('selects household content, including Admin, without exposing pending owners', async () => {
     const { access, owner, guest, profiles } = await fixture();
-    expect(await profiles.list(guest)).toEqual([{ id: 'profile', name: 'Household member' }]);
+    expect(await profiles.list(guest)).toEqual([
+      { id: (await access.authenticate(owner, true)).principal!.id, name: 'Owner' },
+      { id: 'profile', name: 'Household member' },
+    ]);
     await profiles.select(guest, 'profile');
     expect(await profiles.selected(guest)).toEqual({ id: 'profile', name: 'Household member' });
     expect((await access.authenticate(guest)).principal).toBeNull();
@@ -361,12 +357,13 @@ describe('household profiles', () => {
       code: 'forbidden',
     });
     await expect(profiles.select(guest, 'dormant')).rejects.toMatchObject({ code: 'forbidden' });
-    await expect(profiles.select(owner, 'profile')).rejects.toMatchObject({ code: 'forbidden' });
+    await profiles.select(owner, 'profile');
+    await expect(access.authenticate(owner, true)).rejects.toMatchObject({ code: 'forbidden' });
     await profiles.select(guest, null);
     expect(await profiles.selected(guest)).toBeNull();
   });
 
-  it('invalidates a selection when a profile gains credentials and does not restore it after an epoch change', async () => {
+  it('keeps a household selection independent of account credentials and rejects replaced profiles', async () => {
     const { store, guest, profiles } = await fixture();
     await profiles.select(guest, 'profile');
     await store.transact((state) => {
@@ -381,8 +378,7 @@ describe('household profiles', () => {
         backedUp: false,
       });
     });
-    expect(await profiles.selected(guest)).toBeNull();
-    await expect(profiles.select(guest, 'profile')).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await profiles.selected(guest)).toEqual({ id: 'profile', name: 'Household member' });
     await store.transact((state) => {
       state.passkeys = [];
       state.principals.find((principal) => principal.id === 'profile')!.epoch++;
@@ -397,12 +393,14 @@ describe('household profiles', () => {
 
   it('revokes selected-profile access when the household password or access mode changes', async () => {
     const { access, owner, guest, profiles } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     await profiles.select(guest, 'profile');
     await access.configureHousehold(owner, 'replacement household password');
     await expect(profiles.selected(guest)).rejects.toMatchObject({ code: 'unauthorized' });
     const replacement = await access.enterHousehold('replacement household password');
     await profiles.select(replacement, 'profile');
-    await access.setMode(owner, 'individual');
+    await profiles.select(replacement, ownerId);
+    await access.setMode(replacement, 'individual');
     await expect(profiles.selected(replacement)).rejects.toMatchObject({ code: 'unauthorized' });
   });
 });

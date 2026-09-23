@@ -32,6 +32,8 @@ async function fixture() {
     'owner password for testing',
     'household',
   );
+  const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+  await new HouseholdProfileService(access).select(owner, ownerId);
   const devices = new DeviceService({
     access,
     scopesFor: (principal) => (principal?.role === 'owner' ? ['read', 'admin'] : ['read']),
@@ -89,7 +91,7 @@ describe('device access', () => {
     const { access, owner } = await fixture();
     const devices = new DeviceService({
       access,
-      scopesFor: () => ['read', 'admin'],
+      scopesFor: (principal) => (principal?.role === 'owner' ? ['read', 'admin'] : ['read']),
       managementScope: 'admin',
     });
     const target = await devices.redeemPairing(await devices.issuePairing(owner, ['read'], 'Target'));
@@ -98,11 +100,8 @@ describe('device access', () => {
       code: 'forbidden',
     });
     expect((await devices.listForDevice(limited)).map((device) => device.name)).toEqual(['Limited']);
-    await access.configureHousehold(owner, 'household password phrase');
-    const guest = await access.enterHousehold('household password phrase');
-    const household = await devices.redeemPairing(
-      await devices.issuePairing(guest, ['read', 'admin'], 'Household'),
-    );
+    const guest = await access.enterHousehold('owner password for testing');
+    const household = await devices.redeemPairing(await devices.issuePairing(guest, ['read'], 'Household'));
     await expect(devices.revokeForDevice(household, tokenHash(target))).rejects.toMatchObject({
       code: 'forbidden',
     });
@@ -159,15 +158,17 @@ describe('device access', () => {
 
   it('pairs the selected household profile and rejects stale selection or profile generations', async () => {
     const { access, devices, store, owner } = await fixture();
-    await access.configureHousehold(owner, 'household password for testing');
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     await store.transact((state) => {
       state.householdProfiles = [
+        { id: ownerId, name: 'Admin', epoch: 0 },
         { id: 'first', name: 'First', epoch: 0 },
         { id: 'second', name: 'Second', epoch: 0 },
       ];
     });
-    const guest = await access.enterHousehold('household password for testing');
+    const guest = await access.enterHousehold('owner password for testing');
     const profiles = new HouseholdProfileService(access);
+    await profiles.select(owner, ownerId);
     await profiles.select(guest, 'first');
     await expect(
       devices.issuePairing(owner, ['read'], 'Owner phone', { defaultProfileId: 'first' }),
@@ -178,7 +179,7 @@ describe('device access', () => {
     ).rejects.toMatchObject({ code: 'forbidden' });
     const stalePair = await devices.issuePairing(guest, ['read'], 'Phone', { defaultProfileId: 'second' });
     await store.transact((state) => {
-      state.householdProfiles![1]!.epoch++;
+      state.householdProfiles![2]!.epoch++;
     });
     await expect(devices.redeemPairing(stalePair)).rejects.toMatchObject({ code: 'unauthorized' });
     await profiles.select(guest, 'second');
@@ -191,7 +192,7 @@ describe('device access', () => {
       expiresAt: expect.any(Number),
     });
     await store.transact((state) => {
-      state.householdProfiles![1] = { id: 'second', name: 'Replacement learner', epoch: 2 };
+      state.householdProfiles![2] = { id: 'second', name: 'Replacement learner', epoch: 2 };
     });
     await expect(devices.authenticate(device, ['read'])).rejects.toMatchObject({ code: 'unauthorized' });
     const ownerDevice = await devices.redeemPairing(
@@ -200,9 +201,13 @@ describe('device access', () => {
     expect((await devices.authenticate(ownerDevice, ['admin'])).principal?.role).toBe('owner');
   });
   it('preserves initialized household tokens through new pairing and restricts their revocation to owners', async () => {
-    const { devices, store, owner } = await fixture();
+    const { access, devices, store, owner } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     await store.transact((state) => {
-      state.householdProfiles = [{ id: 'learner', name: 'Learner', epoch: 0 }];
+      state.householdProfiles = [
+        { id: ownerId, name: 'Admin', epoch: 0 },
+        { id: 'learner', name: 'Learner', epoch: 0 },
+      ];
       initializeHouseholdDevices(
         state,
         'initial-devices',
@@ -219,6 +224,7 @@ describe('device access', () => {
         ['read'],
       );
     });
+    await new HouseholdProfileService(access).select(owner, ownerId);
     expect(await devices.authenticate('initial-raw', ['read'])).toMatchObject({
       principal: null,
       defaultProfileId: 'learner',
@@ -228,14 +234,18 @@ describe('device access', () => {
     const paired = await devices.redeemPairing(await devices.issuePairing(owner, ['read'], 'New phone'));
     expect((await devices.authenticate(paired, ['read'])).expiresAt).not.toBeNull();
     expect((await devices.authenticate('initial-raw', ['read'])).expiresAt).toBeNull();
-    const householdAccess = new AccessService({ store, allowOpenHousehold: true });
-    const household = await householdAccess.enterOpenHousehold();
+    const household = await access.enterHousehold('owner password for testing');
+    await new HouseholdProfileService(access).select(household, 'learner');
     expect(await devices.list(household)).toEqual([]);
-    expect((await devices.list(owner)).some((device) => device.id === tokenHash('initial-raw'))).toBe(true);
+    const adminBrowser = await access.enterHousehold('owner password for testing');
+    await new HouseholdProfileService(access).select(adminBrowser, ownerId);
+    expect((await devices.list(adminBrowser)).some((device) => device.id === tokenHash('initial-raw'))).toBe(
+      true,
+    );
     await expect(devices.revoke(household, tokenHash('initial-raw'))).rejects.toMatchObject({
       code: 'forbidden',
     });
-    await devices.revoke(owner, tokenHash('initial-raw'));
+    await devices.revoke(adminBrowser, tokenHash('initial-raw'));
     await expect(devices.authenticate('initial-raw', ['read'])).rejects.toMatchObject({
       code: 'unauthorized',
     });
@@ -250,8 +260,12 @@ describe('device access', () => {
     'invalidates an initialized household device after %s',
     async (change) => {
       const { access, devices, store, owner } = await fixture();
+      const ownerId = (await access.authenticate(owner, true)).principal!.id;
       await store.transact((state) => {
-        state.householdProfiles = [{ id: 'learner', name: 'Learner', epoch: 0 }];
+        state.householdProfiles = [
+          { id: ownerId, name: 'Admin', epoch: 0 },
+          { id: 'learner', name: 'Learner', epoch: 0 },
+        ];
         initializeHouseholdDevices(
           state,
           'devices',
@@ -268,6 +282,7 @@ describe('device access', () => {
           ['read'],
         );
       });
+      await new HouseholdProfileService(access).select(owner, ownerId);
       expect((await devices.authenticate('initialized', ['read'])).defaultProfileId).toBe('learner');
       if (change === 'profile deletion') {
         await store.transact((state) => {
@@ -326,22 +341,23 @@ describe('device access', () => {
   });
   it('keeps a paired device independent of browser logout and supports its own revocation', async () => {
     const { access, devices, owner } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
     const device = await devices.redeemPairing(await devices.issuePairing(owner, ['read'], 'Phone'));
     await access.revokeSession(owner, tokenHash(owner));
     expect((await devices.authenticate(device, ['read'])).name).toBe('Phone');
-    const replacement = await access.login('Owner', 'owner password for testing');
+    const replacement = await access.enterHousehold('owner password for testing');
+    await new HouseholdProfileService(access).select(replacement, ownerId);
     await devices.revoke(replacement, tokenHash(device));
     await expect(devices.authenticate(device, ['read'])).rejects.toMatchObject({ code: 'unauthorized' });
   });
   it('limits household delegation and invalidates household devices when the admission password changes', async () => {
     const { access, devices, owner } = await fixture();
-    await access.configureHousehold(owner, 'household password for testing');
-    const guest = await access.enterHousehold('household password for testing');
+    const guest = await access.enterHousehold('owner password for testing');
     await expect(devices.issuePairing(guest, ['admin'], 'Phone')).rejects.toMatchObject({
       code: 'forbidden',
     });
     const device = await devices.redeemPairing(await devices.issuePairing(guest, ['read'], 'Phone'));
-    const otherGuest = await access.enterHousehold('household password for testing');
+    const otherGuest = await access.enterHousehold('owner password for testing');
     expect(await devices.list(otherGuest)).toEqual([]);
     await expect(devices.revoke(otherGuest, tokenHash(device))).rejects.toMatchObject({ code: 'forbidden' });
     await access.configureHousehold(owner, 'replacement household password');

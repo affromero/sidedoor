@@ -165,22 +165,22 @@ The [CLI subscription contract tests](https://github.com/affromero/sidedoor/blob
 
 ## Add password and passkey access
 
-The core access service owns password verification, WebAuthn passkeys, sessions, recovery, invitations, profiles, and device credentials. Your application supplies the relying-party origin, HTTP mounting, database transaction, owner identity, and authorization rules.
+The core access service owns password verification, WebAuthn passkeys, sessions, recovery, invitations, profiles, and device credentials. Your application supplies the relying-party origin, HTTP mounting, storage transaction, and profile mapping.
 
 ```mermaid
 flowchart LR
-  Claim[One-time owner claim] --> Owner[Owner account and recovery]
-  Owner --> Household[Set household password]
-  Household --> Entry[Enter household]
+  Claim[First Admin claim] --> Gate[One shared password]
+  Gate --> Entry[Enter household]
   Entry --> Save[Offer native passkey enrollment]
   Save --> Picker[Application profile picker]
   Entry --> Picker
   Save --> Later[Passkey sign-in on a later visit]
   Later --> Picker
-  Owner --> Admin[Owner settings]
+  Picker --> Admin[First profile: Admin settings]
+  Picker --> Member[Other profiles: personal content]
 ```
 
-Passkeys use the platform WebAuthn implementation, including Apple Passwords and iCloud Keychain where the browser and device support them. After a successful household password entry, `AccessForm` offers a skippable native passkey setup before the application opens its profile picker. A household passkey signs in to the household only. It cannot grant owner or member authority. Enrollment requires a fresh password-entry session, and changing the household password or access mode revokes those passkeys. The owner can review and remove them from `AccessSecurity`. Password entry remains available. Start with the [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and the [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts).
+The first Admin claim sets the shared password. After password entry, `AccessForm` offers to save a passkey with Apple Passwords or another WebAuthn manager. The visitor can skip this step. A saved passkey opens the same profile picker on later visits. Any admitted visitor can choose the Admin profile and change app settings. Choosing another profile removes that authority. Changing the shared password revokes household sessions and passkeys. Admin can manage passkeys and recovery codes in `AccessSecurity`. The [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts) show how to mount this flow. Public hosted apps that need separate account login can opt in with `allowPrincipalAccessInHousehold`.
 
 ## Choose storage
 

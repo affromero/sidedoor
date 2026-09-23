@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 import {
   AccessService,
+  HouseholdProfileService,
+  PrincipalManagement,
   DeviceService,
   accessStateSchema,
   executeAccessCommand,
@@ -56,7 +58,8 @@ it('protects the last owner inside the shared removal primitive', async () => {
     'operator test owner password',
     'household',
   );
-  const id = (await access.authenticate(session)).principal!.id;
+  const id = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+  await new HouseholdProfileService(access).select(session, id);
   await expect(store.transact((state) => removePrincipalFromState(state, id))).rejects.toMatchObject({
     code: 'conflict',
   });
@@ -78,6 +81,7 @@ it('issues a usable local claim and lists identities without credentials', async
 it('keeps independent operator recovery codes usable for each account', async () => {
   const { access, store } = await fixture();
   await store.transact((state) => {
+    state.mode = 'individual';
     state.principals.push(
       { id: 'first', name: 'First', role: 'owner', passwordHash: null, epoch: 0, createdAt: 1 },
       { id: 'second', name: 'Second', role: 'owner', passwordHash: null, epoch: 0, createdAt: 1 },
@@ -93,15 +97,40 @@ it('keeps independent operator recovery codes usable for each account', async ()
   ).toBe('second');
 });
 
-it('issues a scoped device credential only through an application-provided local operator service', async () => {
-  const { access } = await fixture();
-  const session = await access.claimOwner(
+it('resets the one household password and revokes existing admission and passkeys', async () => {
+  const { access, store } = await fixture();
+  const owner = await access.claimOwner(
     await access.issueOperatorToken(),
     'Owner',
     'operator test owner password',
     'household',
   );
-  const principalId = (await access.authenticate(session)).principal!.id;
+  const principalId = (await store.read()).principals[0]!.id;
+  await new HouseholdProfileService(access).select(owner, principalId);
+  await new PrincipalManagement(access).resetPasswordForOperator(
+    principalId,
+    'replacement household password',
+  );
+  await expect(access.authenticate(owner)).rejects.toMatchObject({ code: 'unauthorized' });
+  await expect(access.enterHousehold('operator test owner password')).rejects.toMatchObject({
+    code: 'unauthorized',
+  });
+  const admitted = await access.enterHousehold('replacement household password');
+  await new HouseholdProfileService(access).select(admitted, principalId);
+  expect((await access.authenticate(admitted, true)).principal?.id).toBe(principalId);
+});
+
+it('issues a scoped device credential only through an application-provided local operator service', async () => {
+  const { access } = await fixture();
+  await access.claimOwner(
+    await access.issueOperatorToken(),
+    'Owner',
+    'operator test owner password',
+    'household',
+  );
+  const principalId = (await access.store.read()).principals.find(
+    (principal) => principal.role === 'owner',
+  )!.id;
   const devices = new DeviceService({ access, scopesFor: () => ['api'], tokenPrefix: 'test_' });
   await expect(executeAccessCommand(access, ['device', principalId])).rejects.toThrow(
     'does not provide local device credentials',
