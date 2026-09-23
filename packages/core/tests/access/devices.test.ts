@@ -41,6 +41,41 @@ async function fixture() {
   return { access, devices, store, owner };
 }
 describe('device access', () => {
+  it('binds delegated Admin scopes to the selected household Admin profile', async () => {
+    const { access, devices, store, owner } = await fixture();
+    const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+    await store.transact((state) => {
+      state.householdProfiles = [
+        { id: ownerId, name: 'Owner', epoch: 0, ownerPrincipalId: ownerId },
+        { id: 'reader', name: 'Reader', epoch: 0 },
+      ];
+    });
+    const profiles = new HouseholdProfileService(access);
+    await profiles.select(owner, ownerId);
+    await expect(devices.issuePairing(owner, ['admin'], 'Unbound')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const paired = await devices.issuePairing(owner, ['read', 'admin'], 'Owner phone', {
+      defaultProfileId: ownerId,
+    });
+    const token = await devices.redeemPairing(paired);
+    expect(await devices.authenticate(token, ['admin'])).toMatchObject({
+      principal: { id: ownerId, role: 'owner' },
+      defaultProfileId: ownerId,
+    });
+    const reader = await access.enterHousehold('owner password for testing');
+    await profiles.select(reader, 'reader');
+    await expect(
+      devices.issuePairing(reader, ['admin'], 'Reader phone', { defaultProfileId: 'reader' }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await devices.list(owner)).map((device) => device.id)).toContain(tokenHash(token));
+    await store.transact((state) => {
+      state.householdProfiles![0]!.ownerPrincipalId = 'reader';
+    });
+    await expect(devices.authenticate(token, ['admin'])).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await devices.authenticate(token, ['read'])).toMatchObject({ defaultProfileId: ownerId });
+  });
+
   it('reports device availability using the same expiry, scope and authority rules as authentication', async () => {
     const { devices, store, owner } = await fixture();
     const token = await devices.redeemPairing(await devices.issuePairing(owner, ['read'], 'Phone'));
@@ -48,7 +83,7 @@ describe('device access', () => {
     const state = await store.read();
     expect(devices.statusFromState(state, id, ['read'])).toBe('active');
     expect(devices.statusFromState(state, id, ['admin'])).toBe('unavailable');
-    state.principals[0]!.epoch++;
+    state.householdEpoch++;
     expect(devices.statusFromState(state, id, ['read'])).toBe('unavailable');
     expect(() => devices.authenticateFromState(state, token, ['read'])).toThrow();
     state.deviceTokens[0]!.expiresAt = 1;
@@ -88,7 +123,7 @@ describe('device access', () => {
   });
 
   it('requires both owner identity and delegated management scope to revoke other devices', async () => {
-    const { access, owner } = await fixture();
+    const { access, store, owner } = await fixture();
     const devices = new DeviceService({
       access,
       scopesFor: (principal) => (principal?.role === 'owner' ? ['read', 'admin'] : ['read']),
@@ -105,8 +140,13 @@ describe('device access', () => {
     await expect(devices.revokeForDevice(household, tokenHash(target))).rejects.toMatchObject({
       code: 'forbidden',
     });
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
+    await store.transact((state) => {
+      state.householdProfiles = [{ id: ownerId, name: 'Owner', epoch: 0, ownerPrincipalId: ownerId }];
+    });
+    await new HouseholdProfileService(access).select(owner, ownerId);
     const manager = await devices.redeemPairing(
-      await devices.issuePairing(owner, ['read', 'admin'], 'Manager'),
+      await devices.issuePairing(owner, ['read', 'admin'], 'Manager', { defaultProfileId: ownerId }),
     );
     expect((await devices.listForDevice(manager)).map((device) => device.name)).toContain('Target');
     await devices.revokeForDevice(manager, tokenHash(target));
@@ -196,7 +236,7 @@ describe('device access', () => {
     });
     await expect(devices.authenticate(device, ['read'])).rejects.toMatchObject({ code: 'unauthorized' });
     const ownerDevice = await devices.redeemPairing(
-      await devices.issuePairing(owner, ['admin'], 'Owner phone'),
+      await devices.issuePairing(owner, ['admin'], 'Owner phone', { defaultProfileId: ownerId }),
     );
     expect((await devices.authenticate(ownerDevice, ['admin'])).principal?.role).toBe('owner');
   });
@@ -364,8 +404,15 @@ describe('device access', () => {
     await expect(devices.authenticate(device, ['read'])).rejects.toMatchObject({ code: 'unauthorized' });
   });
   it('reduces device permissions when its owner loses owner privileges', async () => {
-    const { devices, store, owner } = await fixture();
-    const device = await devices.redeemPairing(await devices.issuePairing(owner, ['read', 'admin'], 'Phone'));
+    const { access, devices, store, owner } = await fixture();
+    const ownerId = (await access.authenticate(owner, true)).principal!.id;
+    await store.transact((state) => {
+      state.householdProfiles = [{ id: ownerId, name: 'Owner', epoch: 0, ownerPrincipalId: ownerId }];
+    });
+    await new HouseholdProfileService(access).select(owner, ownerId);
+    const device = await devices.redeemPairing(
+      await devices.issuePairing(owner, ['read', 'admin'], 'Phone', { defaultProfileId: ownerId }),
+    );
     await store.transact((state) => {
       state.principals[0]!.role = 'member';
     });
