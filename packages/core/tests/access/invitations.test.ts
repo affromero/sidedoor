@@ -19,6 +19,7 @@ async function fixture(mode: 'individual' | 'household' = 'household') {
   const directory = await mkdtemp(join(tmpdir(), 'sidedoor-invite-'));
   directories.push(directory);
   const access = new AccessService({
+    allowHouseholdInvitations: true,
     store: new FileStateStore({
       path: join(directory, 'access.json'),
       initial: initialAccessState,
@@ -40,6 +41,15 @@ async function fixture(mode: 'individual' | 'household' = 'household') {
   return { access, owner, invites: new InvitationService(access) };
 }
 describe('instance invitations', () => {
+  it('keeps private households behind the shared password even when an old invitation exists', async () => {
+    const { access, owner, invites } = await fixture();
+    const code = await invites.issue(owner);
+    const privateAccess = new AccessService({ store: access.store });
+    const privateInvites = new InvitationService(privateAccess);
+    await expect(privateInvites.issue(owner)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(privateInvites.redeem(code)).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
   it('rejects account enrollment on a household invitation without consuming it', async () => {
     const { access, invites, owner } = await fixture();
     const code = await invites.issue(owner);

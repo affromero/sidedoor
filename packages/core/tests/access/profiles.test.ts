@@ -7,7 +7,6 @@ import {
   HouseholdProfileService,
   HouseholdProfileManagement,
   DeviceService,
-  InvitationService,
   accessStateSchema,
   initialAccessState,
 } from '../../src/access';
@@ -243,11 +242,6 @@ describe('household profiles', () => {
     expect(await profiles.selected(guest)).toEqual({ id: principal.id, name: 'Shared owner library' });
     expect((await access.authenticate(guest)).principal).toBeNull();
     expect((await access.authenticate(guest, true)).principal?.id).toBe(principal.id);
-    const invited = await new InvitationService(access).redeem(
-      await new InvitationService(access).issue(owner),
-    );
-    await profiles.select(invited, principal.id);
-    expect((await access.authenticate(invited, true)).principal?.id).toBe(principal.id);
     await profiles.select(guest, null);
     await expect(access.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
     await profiles.select(guest, principal.id);

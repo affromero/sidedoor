@@ -24,6 +24,8 @@ export class InvitationService {
     )
       throw new AccessError('invalid');
     return this.access.store.transact((state) => {
+      if (state.mode === 'household' && !this.access.allowHouseholdInvitations)
+        throw new AccessError('forbidden');
       const auth = this.access.sessionFromState(state, ownerToken, true, true);
       if (!auth.principal) throw new AccessError('forbidden');
       state.invitations = state.invitations.filter((item) => item.expiresAt > this.access.now());
@@ -62,6 +64,8 @@ export class InvitationService {
 
   async redeem(code: string, enrollment?: { name: string; password: string }): Promise<string> {
     const snapshot = await this.access.store.read();
+    if (snapshot.mode === 'household' && !this.access.allowHouseholdInvitations)
+      throw new AccessError('forbidden');
     const invitation = this.valid(snapshot, code);
     if (invitation.mode === 'household' && enrollment) throw new AccessError('invalid');
     let name: string | undefined;

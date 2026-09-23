@@ -48,6 +48,7 @@ export interface AccessOptions {
   householdSessionTtlMs?: number;
   recentAuthMs?: number;
   allowOpenHousehold?: boolean;
+  allowHouseholdInvitations?: boolean;
   allowPrincipalAccessInHousehold?: boolean;
   now?: () => number;
 }
@@ -63,6 +64,7 @@ export class AccessService {
   private readonly ttl: number;
   private readonly householdTtl: number;
   private readonly allowOpenHousehold: boolean;
+  readonly allowHouseholdInvitations: boolean;
   readonly allowPrincipalAccessInHousehold: boolean;
 
   constructor(options: AccessOptions) {
@@ -71,6 +73,7 @@ export class AccessService {
     this.ttl = options.sessionTtlMs ?? 30 * 24 * 60 * 60 * 1000;
     this.householdTtl = options.householdSessionTtlMs ?? this.ttl;
     this.allowOpenHousehold = options.allowOpenHousehold ?? false;
+    this.allowHouseholdInvitations = options.allowHouseholdInvitations ?? false;
     this.allowPrincipalAccessInHousehold = options.allowPrincipalAccessInHousehold ?? false;
     this.recentAuthMs = options.recentAuthMs ?? 5 * 60 * 1000;
     if (

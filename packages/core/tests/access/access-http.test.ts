@@ -507,9 +507,9 @@ describe('browser access endpoints', () => {
       ).toThrow();
   });
 
-  it('allows an admitted visitor to choose Admin after redeeming an invitation', async () => {
+  it('lets a password-admitted visitor choose Admin without an invitation', async () => {
     const { access, post, claim } = await fixture();
-    expect((await post('issue-invitation', {})).status).toBe(401);
+    expect((await post('issue-invitation', {})).status).toBe(403);
     const claimed = await post('claim', {
       token: claim,
       name: 'Owner',
@@ -521,9 +521,10 @@ describe('browser access endpoints', () => {
     )!.id;
     const ownerToken = claimed.headers.get('set-cookie')!.split(';')[0]!.split('=')[1]!;
     await new HouseholdProfileService(access).select(ownerToken, ownerId);
-    const invitation = await post('issue-invitation', {}, { cookie: claimed.headers.get('set-cookie')! });
-    const input = await invitation.json();
-    const admitted = await post('redeem-invitation', { code: input.code });
+    expect((await post('issue-invitation', {}, { cookie: claimed.headers.get('set-cookie')! })).status).toBe(
+      403,
+    );
+    const admitted = await post('household', { password: 'a sufficiently long password' });
     expect(admitted.status).toBe(200);
     expect((await admitted.json()).principal).toBeNull();
     const invitedCookie = admitted.headers.get('set-cookie')!;
