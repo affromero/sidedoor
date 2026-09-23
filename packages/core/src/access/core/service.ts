@@ -48,6 +48,7 @@ export interface AccessOptions {
   householdSessionTtlMs?: number;
   recentAuthMs?: number;
   allowOpenHousehold?: boolean;
+  allowHouseholdInvitations?: boolean;
   allowPrincipalAccessInHousehold?: boolean;
   now?: () => number;
 }
@@ -63,6 +64,7 @@ export class AccessService {
   private readonly ttl: number;
   private readonly householdTtl: number;
   private readonly allowOpenHousehold: boolean;
+  readonly allowHouseholdInvitations: boolean;
   readonly allowPrincipalAccessInHousehold: boolean;
 
   constructor(options: AccessOptions) {
@@ -71,6 +73,7 @@ export class AccessService {
     this.ttl = options.sessionTtlMs ?? 30 * 24 * 60 * 60 * 1000;
     this.householdTtl = options.householdSessionTtlMs ?? this.ttl;
     this.allowOpenHousehold = options.allowOpenHousehold ?? false;
+    this.allowHouseholdInvitations = options.allowHouseholdInvitations ?? false;
     this.allowPrincipalAccessInHousehold = options.allowPrincipalAccessInHousehold ?? false;
     this.recentAuthMs = options.recentAuthMs ?? 5 * 60 * 1000;
     if (
@@ -179,6 +182,8 @@ export class AccessService {
     return this.store.transact((state) => {
       const principal = state.principals.find((item) => item.id === principalId);
       if (principalId && !principal) throw new AccessError('invalid');
+      if (principalId && state.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       if (!principalId && state.principals.some((item) => item.role === 'owner'))
         throw new AccessError('conflict');
       const raw = newToken();
@@ -307,6 +312,29 @@ export class AccessService {
       }
       state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
       state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.recoveryCodes = [];
+      state.tokens = state.tokens.filter((token) => token.kind !== 'recover');
+      state.sessions = [];
+    });
+  }
+
+  /** Local operator only. Replace the shared password when the server owner loses access. */
+  async resetHouseholdPasswordForOperator(password: string): Promise<void> {
+    const encoded = await hashPassword(password);
+    await this.store.transact((state) => {
+      if (state.mode !== 'household' || !state.principals.some((principal) => principal.role === 'owner'))
+        throw new AccessError('conflict');
+      state.householdPasswordHash = encoded;
+      state.householdEpoch++;
+      for (const principal of state.principals) {
+        if (principal.role !== 'owner') continue;
+        principal.passwordHash = encoded;
+        principal.epoch++;
+      }
+      state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+      state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.recoveryCodes = [];
+      state.tokens = state.tokens.filter((token) => token.kind !== 'recover');
       state.sessions = [];
     });
   }
@@ -503,6 +531,8 @@ export class AccessService {
 
   async recoveryCodes(token: string): Promise<string[]> {
     return this.store.transact((state) => {
+      if (state.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
       const { principal } = this.sessionFromState(state, token, state.mode === 'household', true);
       if (!principal) throw new AccessError('forbidden');
       const codes = Array.from({ length: 8 }, newToken);
@@ -514,6 +544,8 @@ export class AccessService {
 
   async recover(code: string, password: string): Promise<string> {
     const snapshot = await this.store.read();
+    if (snapshot.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
     const hash = tokenHash(code);
     if (
       !snapshot.recoveryCodes.some((item) => item.id === hash) &&

@@ -8,6 +8,32 @@ afterEach(() => {
 });
 
 describe('shared access form', () => {
+  it('gives the shared password a stable account name for browser credential saving', () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    render(<AccessForm initialMode="household" modes={['household']} onSignedIn={() => {}} />);
+    const account = screen.getByRole('textbox', { name: 'Shared account' }) as HTMLInputElement;
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(account.value).toBe('Household');
+    expect(account.readOnly).toBe(true);
+    expect(account.getAttribute('autocomplete')).toBe('username');
+    expect(screen.getByLabelText('Password')).toBeTruthy();
+  });
+
+  it('explains when each access path applies', () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    const view = render(<AccessForm initialMode="household" onSignedIn={() => {}} />);
+    const navigation = within(view.container.querySelector('nav')!);
+    expect(navigation.getByRole('button', { name: 'Enter household' }).title).toContain('shared password');
+    expect(navigation.getByRole('button', { name: 'Recover account' }).title).toContain('recovery code');
+    expect(navigation.getByRole('button', { name: 'Claim instance' }).title).toContain('owner-claim code');
+  });
+
   it('keeps claim setup to the host permitted household mode', async () => {
     vi.stubGlobal('fetch', async (url: string) => {
       if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
@@ -17,7 +43,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="claim" modes={['claim']} claimModes={['household']} onSignedIn={() => {}} />,
     );
     expect(screen.queryByRole('combobox', { name: 'Access mode' })).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(1);
   });
 
   it('offers passkey enrollment after household password entry before opening the profile picker', async () => {

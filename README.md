@@ -169,7 +169,7 @@ The core access service owns password verification, WebAuthn passkeys, sessions,
 
 ```mermaid
 flowchart LR
-  Claim[First Admin claim] --> Gate[One shared password]
+  Setup[Local server setup creates first Admin and shared password] --> Gate[One shared password]
   Gate --> Entry[Enter household]
   Entry --> Save[Offer native passkey enrollment]
   Save --> Picker[Application profile picker]
@@ -180,7 +180,7 @@ flowchart LR
   Picker --> Member[Other profiles: personal content]
 ```
 
-The first Admin claim sets the shared password. After password entry, `AccessForm` offers to save a passkey with Apple Passwords or another WebAuthn manager. The visitor can skip this step. A saved passkey opens the same profile picker on later visits. Any admitted visitor can choose the Admin profile and change app settings. Choosing another profile removes that authority. Changing the shared password revokes household sessions and passkeys. Admin can manage passkeys and recovery codes in `AccessSecurity`. The [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts) show how to mount this flow. Public hosted apps that need separate account login can opt in with `allowPrincipalAccessInHousehold`.
+The server operator runs local `access setup` to create the first Admin profile and shared password before opening the app. Visitors see only that password or a household passkey, then choose a profile. `AccessForm` offers to save a passkey with Apple Passwords or another WebAuthn manager after password entry. A visitor can skip this step. A saved passkey opens the same profile picker on later visits. Anyone who knows the shared password can choose Admin and change app settings. Choosing another profile removes that authority. Changing the shared password revokes household sessions and passkeys. If the password is lost, the server operator runs local `access reset`; no recovery code is needed. Household invitations cannot bypass the shared password. Set `showRecoveryCodes={false}` on `AccessSecurity` for a private household app. The [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts) show how to mount this flow. Public hosted apps that need separate account login can opt in with `allowPrincipalAccessInHousehold`.
 
 ## Choose storage
 
