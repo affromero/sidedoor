@@ -7,7 +7,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import { AccessError, AccessService, newToken, tokenHash } from '../core/service';
-import { passkeySchema, type Challenge, type Passkey } from '../core/state';
+import { passkeyTransportsSchema, type Challenge, type Passkey } from '../core/state';
 import { PasskeyManagement } from './passkey-management';
 
 export interface PasskeyOptions {
@@ -25,6 +25,7 @@ function sameChallenge(left: Challenge, right: Challenge): boolean {
     left.sessionId === right.sessionId &&
     left.originalSessionId === right.originalSessionId &&
     left.principalEpoch === right.principalEpoch &&
+    left.householdEpoch === right.householdEpoch &&
     left.rpId === right.rpId &&
     left.origin === right.origin &&
     left.expiresAt === right.expiresAt
@@ -54,32 +55,61 @@ export class PasskeyService extends PasskeyManagement {
   }
 
   async registrationOptions(token: string, origin: string) {
+    return this.registrationOptionsFor(token, origin, false);
+  }
+
+  async householdRegistrationOptions(token: string, origin: string) {
+    return this.registrationOptionsFor(token, origin, true);
+  }
+
+  private async registrationOptionsFor(token: string, origin: string, household: boolean) {
     this.checkOrigin(origin);
     const state = await this.access.store.read();
     const { principal, session } = this.access.sessionFromState(state, token, false, true);
-    if (!principal) throw new AccessError('forbidden');
+    if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
+    if (
+      household
+        ? principal || !session.householdEnrollmentAvailable || !state.householdPasswordHash
+        : !principal
+    )
+      throw new AccessError('forbidden');
     const options = await generateRegistrationOptions({
       rpName: this.name,
       rpID: this.rpId,
-      userID: new TextEncoder().encode(principal.id),
-      userName: principal.name,
+      userID: new TextEncoder().encode(household ? 'household' : principal!.id),
+      userName: household ? 'Household' : principal!.name,
       attestationType: 'none',
       excludeCredentials: state.passkeys
-        .filter((key) => key.principalId === principal.id)
+        .filter((key) =>
+          household
+            ? key.scope === 'household' && key.householdEpoch === state.householdEpoch
+            : key.scope !== 'household' && key.principalId === principal!.id,
+        )
         .map((key) => ({ id: key.id, transports: key.transports })),
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
     });
     const ceremony = newToken();
     await this.access.store.transact((current) => {
-      this.access.sessionFromState(current, token, false, true);
+      const currentAuth = this.access.sessionFromState(current, token, false, true);
+      if (!household && current.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
+      if (
+        household &&
+        (currentAuth.principal ||
+          !currentAuth.session.householdEnrollmentAvailable ||
+          !current.householdPasswordHash)
+      )
+        throw new AccessError('forbidden');
       current.challenges = current.challenges.filter(
         (item) => item.expiresAt > this.access.now() && item.sessionId !== session.id,
       );
       current.challenges.push({
         id: tokenHash(ceremony),
         challenge: options.challenge,
-        kind: 'register',
-        principalId: principal.id,
+        kind: household ? 'register-household' : 'register',
+        principalId: principal?.id ?? null,
+        ...(household ? { householdEpoch: current.householdEpoch } : {}),
         sessionId: session.id,
         rpId: this.rpId,
         origin,
@@ -119,8 +149,34 @@ export class PasskeyService extends PasskeyManagement {
     name: string,
     origin: string,
   ): Promise<void> {
+    return this.registerFor(token, ceremony, response, name, origin, false);
+  }
+
+  async registerHousehold(
+    token: string,
+    ceremony: string,
+    response: RegistrationResponseJSON,
+    name: string,
+    origin: string,
+  ): Promise<void> {
+    return this.registerFor(token, ceremony, response, name, origin, true);
+  }
+
+  private async registerFor(
+    token: string,
+    ceremony: string,
+    response: RegistrationResponseJSON,
+    name: string,
+    origin: string,
+    household: boolean,
+  ): Promise<void> {
     await this.access.authenticate(token, false, true);
-    const challenge = await this.consume(ceremony, token, origin, 'register');
+    const challenge = await this.consume(
+      ceremony,
+      token,
+      origin,
+      household ? 'register-household' : 'register',
+    );
     const result = await verifyRegistrationResponse({
       response,
       expectedChallenge: challenge.challenge,
@@ -131,19 +187,32 @@ export class PasskeyService extends PasskeyManagement {
     if (!result.verified) throw new AccessError('unauthorized');
     const info = result.registrationInfo;
     await this.access.store.transact((state) => {
-      const { principal } = this.access.sessionFromState(state, token, false, true);
-      if (!principal || principal.id !== challenge.principalId) throw new AccessError('forbidden');
+      const { principal, session } = this.access.sessionFromState(state, token, false, true);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('forbidden');
+      if (
+        household
+          ? principal ||
+            !session.householdEnrollmentAvailable ||
+            !state.householdPasswordHash ||
+            challenge.householdEpoch !== state.householdEpoch
+          : !principal || principal.id !== challenge.principalId
+      )
+        throw new AccessError('forbidden');
       if (state.passkeys.some((key) => key.id === info.credential.id)) throw new AccessError('conflict');
       state.passkeys.push({
         id: info.credential.id,
-        principalId: principal.id,
+        ...(household
+          ? { scope: 'household' as const, principalId: null, householdEpoch: state.householdEpoch }
+          : { principalId: principal!.id }),
         publicKey: Buffer.from(info.credential.publicKey).toString('base64url'),
         counter: info.credential.counter,
-        transports: passkeySchema.shape.transports.parse(info.credential.transports ?? []),
+        transports: passkeyTransportsSchema.parse(info.credential.transports ?? []),
         name: name.trim().slice(0, 100) || 'Passkey',
         createdAt: this.access.now(),
         backedUp: info.credentialBackedUp,
       });
+      if (household) session.householdEnrollmentAvailable = false;
     });
   }
 
@@ -152,20 +221,52 @@ export class PasskeyService extends PasskeyManagement {
     return this.authenticationOptionsFor(binding, origin);
   }
 
+  async householdAuthenticationOptions(binding: string, origin: string) {
+    return this.authenticationOptionsFor(binding, origin, undefined, true);
+  }
+
+  async hasHouseholdPasskeys(): Promise<boolean> {
+    const state = await this.access.store.read();
+    return (
+      state.mode === 'household' &&
+      state.householdPasswordHash !== null &&
+      state.passkeys.some((key) => key.scope === 'household' && key.householdEpoch === state.householdEpoch)
+    );
+  }
+
   async reauthenticationOptions(token: string, binding: string, origin: string) {
     return this.authenticationOptionsFor(binding, origin, token);
   }
 
-  private async authenticationOptionsFor(binding: string, origin: string, originalToken?: string) {
+  private async authenticationOptionsFor(
+    binding: string,
+    origin: string,
+    originalToken?: string,
+    household = false,
+  ) {
     this.checkOrigin(origin);
     if (binding.length < 32 || binding.length > 128) throw new AccessError('invalid');
     let allowCredentials: Pick<Passkey, 'id' | 'transports'>[] | undefined;
+    if (
+      !household &&
+      (await this.access.store.read()).mode === 'household' &&
+      !this.access.allowPrincipalAccessInHousehold
+    )
+      throw new AccessError('forbidden');
+    if (household) {
+      const state = await this.access.store.read();
+      if (state.mode !== 'household' || !state.householdPasswordHash) throw new AccessError('forbidden');
+      allowCredentials = state.passkeys
+        .filter((key) => key.scope === 'household' && key.householdEpoch === state.householdEpoch)
+        .map((key) => ({ id: key.id, transports: key.transports }));
+      if (!allowCredentials.length) throw new AccessError('invalid');
+    }
     if (originalToken !== undefined) {
       const state = await this.access.store.read();
       const auth = this.access.sessionFromState(state, originalToken);
       if (!auth.principal) throw new AccessError('forbidden');
       allowCredentials = state.passkeys
-        .filter((key) => key.principalId === auth.principal?.id)
+        .filter((key) => key.scope !== 'household' && key.principalId === auth.principal?.id)
         .map((key) => ({ id: key.id, transports: key.transports }));
       if (!allowCredentials.length) throw new AccessError('invalid');
     }
@@ -185,8 +286,9 @@ export class PasskeyService extends PasskeyManagement {
       state.challenges.push({
         id: tokenHash(ceremony),
         challenge: options.challenge,
-        kind: auth ? 'reauthenticate' : 'authenticate',
+        kind: auth ? 'reauthenticate' : household ? 'authenticate-household' : 'authenticate',
         principalId: auth?.principal?.id ?? null,
+        ...(household ? { householdEpoch: state.householdEpoch } : {}),
         originalSessionId: auth?.session.id,
         principalEpoch: auth?.principal?.epoch,
         sessionId: tokenHash(binding),
@@ -208,6 +310,16 @@ export class PasskeyService extends PasskeyManagement {
     return this.completeAuthentication(binding, ceremony, response, origin, name);
   }
 
+  async loginHousehold(
+    binding: string,
+    ceremony: string,
+    response: AuthenticationResponseJSON,
+    origin: string,
+    name = 'Household passkey browser',
+  ): Promise<string> {
+    return this.completeAuthentication(binding, ceremony, response, origin, name, undefined, true);
+  }
+
   async reauthenticate(
     token: string,
     binding: string,
@@ -225,11 +337,19 @@ export class PasskeyService extends PasskeyManagement {
     origin: string,
     name: string,
     originalToken?: string,
+    household = false,
   ): Promise<string> {
     this.checkOrigin(origin);
     const snapshot = await this.access.store.read();
+    if (!household && snapshot.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+      throw new AccessError('unauthorized');
     const challenge = snapshot.challenges.find((item) => item.id === tokenHash(ceremony));
-    const kind = originalToken === undefined ? 'authenticate' : 'reauthenticate';
+    const kind =
+      originalToken === undefined
+        ? household
+          ? 'authenticate-household'
+          : 'authenticate'
+        : 'reauthenticate';
     if (
       !challenge ||
       challenge.kind !== kind ||
@@ -240,25 +360,39 @@ export class PasskeyService extends PasskeyManagement {
     )
       throw new AccessError('unauthorized');
     const key = snapshot.passkeys.find((item) => item.id === response.id);
-    const principal = snapshot.principals.find((item) => item.id === key?.principalId);
-    if (!key || !principal) throw new AccessError('unauthorized');
+    const principal =
+      key?.scope === 'household' ? null : snapshot.principals.find((item) => item.id === key?.principalId);
+    if (
+      !key ||
+      (household
+        ? key.scope !== 'household' ||
+          snapshot.mode !== 'household' ||
+          !snapshot.householdPasswordHash ||
+          key.householdEpoch !== snapshot.householdEpoch ||
+          challenge.householdEpoch !== snapshot.householdEpoch
+        : key.scope === 'household' || !principal)
+    )
+      throw new AccessError('unauthorized');
     if (originalToken !== undefined) {
       const auth = this.access.sessionFromState(snapshot, originalToken);
       if (
         challenge.originalSessionId !== auth.session.id ||
-        challenge.principalId !== principal.id ||
-        auth.principal?.id !== principal.id ||
-        challenge.principalEpoch !== principal.epoch
+        challenge.principalId !== principal?.id ||
+        auth.principal?.id !== principal?.id ||
+        challenge.principalEpoch !== principal?.epoch
       )
         throw new AccessError('unauthorized');
     }
     if (
       response.response.userHandle &&
-      response.response.userHandle !== Buffer.from(principal.id).toString('base64url')
+      response.response.userHandle !==
+        Buffer.from(household ? 'household' : principal!.id).toString('base64url')
     )
       throw new AccessError('unauthorized');
     await this.access.store.transact((state) => {
       const pending = state.challenges.find((item) => item.id === challenge.id);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('unauthorized');
       if (!pending || !sameChallenge(pending, challenge) || pending.expiresAt <= this.access.now())
         throw new AccessError('unauthorized');
       if ((pending.verificationAttempts ?? 0) >= 5) throw new AccessError('rate_limited');
@@ -280,31 +414,45 @@ export class PasskeyService extends PasskeyManagement {
     if (!result.verified) throw new AccessError('unauthorized');
     return this.access.store.transact((state) => {
       const pending = state.challenges.find((item) => item.id === challenge.id);
+      if (!household && state.mode === 'household' && !this.access.allowPrincipalAccessInHousehold)
+        throw new AccessError('unauthorized');
       if (!pending || pending.expiresAt <= this.access.now() || !sameChallenge(pending, challenge))
         throw new AccessError('unauthorized');
       if (originalToken !== undefined) {
         const auth = this.access.sessionFromState(state, originalToken);
         if (
           auth.session.id !== challenge.originalSessionId ||
-          auth.principal?.id !== principal.id ||
-          auth.principal.epoch !== challenge.principalEpoch
+          auth.principal?.id !== principal?.id ||
+          auth.principal?.epoch !== challenge.principalEpoch
         )
           throw new AccessError('unauthorized');
         state.sessions = state.sessions.filter((session) => session.id !== auth.session.id);
       }
       const current = state.passkeys.find((item) => item.id === key.id);
-      const currentPrincipal = state.principals.find((item) => item.id === principal.id);
+      const currentPrincipal = principal ? state.principals.find((item) => item.id === principal.id) : null;
       if (
         !current ||
         current.counter !== key.counter ||
         current.publicKey !== key.publicKey ||
-        currentPrincipal?.epoch !== principal.epoch
+        (household
+          ? current.scope !== 'household' ||
+            current.householdEpoch !== state.householdEpoch ||
+            state.mode !== 'household' ||
+            !state.householdPasswordHash ||
+            pending.householdEpoch !== state.householdEpoch
+          : current.scope === 'household' || currentPrincipal?.epoch !== principal?.epoch)
       )
         throw new AccessError('unauthorized');
       current.counter = result.authenticationInfo.newCounter;
       current.backedUp = result.authenticationInfo.credentialBackedUp;
       state.challenges = state.challenges.filter((item) => item.id !== challenge.id);
-      return this.access.issueSession(state, principal.id, name);
+      return this.access.issueSession(
+        state,
+        household ? null : principal!.id,
+        name,
+        false,
+        household ? 'passkey' : undefined,
+      );
     });
   }
 }

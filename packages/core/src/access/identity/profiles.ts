@@ -6,17 +6,12 @@ export interface HouseholdProfile {
   name: string;
 }
 
-function selectable(state: AccessState, principal: Principal): boolean {
-  return (
-    principal.role === 'member' &&
-    principal.pendingRole !== 'owner' &&
-    principal.passwordHash === null &&
-    !state.passkeys.some((key) => key.principalId === principal.id)
-  );
+function selectable(principal: Principal): boolean {
+  return principal.pendingRole !== 'owner';
 }
 
 function availableProfiles(state: AccessState) {
-  return state.householdProfiles ?? state.principals.filter((principal) => selectable(state, principal));
+  return state.householdProfiles ?? state.principals.filter(selectable);
 }
 
 function selectProfile(
@@ -30,7 +25,7 @@ function selectProfile(
   else delete session.selectedProfileSource;
 }
 
-/** A household profile selects content. It never authenticates a principal. */
+/** A household profile selects content and can grant Admin authority after household admission. */
 export class HouseholdProfileService {
   constructor(private readonly access: AccessService) {}
 

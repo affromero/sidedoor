@@ -14,6 +14,7 @@ function reads(url: string): Response {
   if (url.endsWith('/session')) return Response.json(session);
   if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
   if (url.endsWith('/passkeys')) return Response.json({ passkeys: [] });
+  if (url.endsWith('/household-passkeys')) return Response.json({ passkeys: [] });
   if (url.endsWith('/sessions'))
     return Response.json({
       sessions: [
@@ -25,6 +26,35 @@ function reads(url: string): Response {
 }
 
 describe('account security', () => {
+  it('lets the selected household Admin rotate the one shared password', async () => {
+    let signedOut = false;
+    let rotated = false;
+    vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
+      if (url.endsWith('/session'))
+        return Response.json({ principal: null, sessionId: 'current', expiresAt: session.expiresAt });
+      if (url.endsWith('/authorize-owner')) return Response.json({ ok: true });
+      if (url.endsWith('/configure-household')) {
+        expect(JSON.parse(String(options.body))).toEqual({ password: 'one new shared password' });
+        rotated = true;
+        return Response.json({ ok: true });
+      }
+      return reads(url);
+    });
+    render(
+      <AccessSecurity
+        onSignInRequired={() => {
+          signedOut = true;
+        }}
+      />,
+    );
+    fireEvent.change(await screen.findByLabelText('New password'), {
+      target: { value: 'one new shared password' },
+    });
+    expect(screen.queryByText('Passkeys')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    await waitFor(() => expect(rotated && signedOut).toBe(true));
+  });
+
   it('shows only the current account sessions and signs in again after revoking this session', async () => {
     let signedOut = false;
     vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {

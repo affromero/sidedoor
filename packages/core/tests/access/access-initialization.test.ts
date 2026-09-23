@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AccessService,
+  HouseholdProfileService,
   accessStateSchema,
   importPasswordHash,
   initialAccessState,
@@ -70,7 +71,7 @@ describe('access initialization', () => {
       principal('profile', 'family', null),
       principal('passwordless-admin', 'recovery', null, 'owner'),
     ];
-    await initializeAccess(store, 'flight-finder-v1', { mode: 'household', principals });
+    await initializeAccess(store, 'flight-finder-v1', { mode: 'individual', principals });
     expect((await store.read()).principals).toEqual(principals);
     const token = await service.login('admin', 'old-pass');
     expect((await service.authenticate(token, true)).principal?.id).toBe('existing-admin');
@@ -117,10 +118,12 @@ describe('access initialization', () => {
       householdPasswordHash,
     });
     const policy = await store.read();
-    await service.enterHousehold('household password', 'Imported household', {
+    const household = await service.enterHousehold('household password', 'Imported household', {
       householdEpoch: policy.householdEpoch,
       policyEpoch: policy.policyEpoch,
     });
+    await new HouseholdProfileService(service).select(household, 'earlier');
+    await service.setMode(household, 'individual');
     await service.login('Earlier', 'earlier password');
     await service.login('Current', 'current password');
     const state = await store.read();

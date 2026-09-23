@@ -8,6 +8,152 @@ afterEach(() => {
 });
 
 describe('shared access form', () => {
+  it('keeps claim setup to the host permitted household mode', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    render(
+      <AccessForm initialMode="claim" modes={['claim']} claimModes={['household']} onSignedIn={() => {}} />,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Access mode' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Claim instance' })).toHaveLength(2);
+  });
+
+  it('offers passkey enrollment after household password entry before opening the profile picker', async () => {
+    vi.stubGlobal('PublicKeyCredential', class {});
+    vi.stubGlobal(
+      'navigator',
+      Object.assign(Object.create(navigator), {
+        credentials: {
+          create: async () => ({
+            id: 'mac-passkey',
+            rawId: new Uint8Array([1]).buffer,
+            type: 'public-key',
+            response: {
+              attestationObject: new Uint8Array([1]).buffer,
+              clientDataJSON: new Uint8Array([1]).buffer,
+            },
+            getClientExtensionResults: () => ({}),
+          }),
+        },
+      }),
+    );
+    const sessions: unknown[] = [];
+    const actions: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      actions.push(url.split('/').pop()!);
+      if (url.endsWith('/capabilities'))
+        return Response.json({
+          password: true,
+          passkeys: true,
+          householdPasskeys: false,
+          openHousehold: false,
+        });
+      if (url.endsWith('/household'))
+        return Response.json({ principal: null, expiresAt: Date.now() + 60_000 });
+      if (url.endsWith('/household-register-options'))
+        return Response.json({
+          ceremony: 'challenge',
+          options: {
+            challenge: 'YWJj',
+            rp: { id: 'private.example', name: 'Test' },
+            user: { id: 'aA', name: 'Household', displayName: 'Household' },
+            pubKeyCredParams: [],
+          },
+        });
+      if (url.endsWith('/register-household-passkey')) return Response.json({ ok: true });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    const view = render(
+      <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
+    );
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
+    fireEvent.click(
+      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
+    );
+    expect(await screen.findByRole('button', { name: 'Use a passkey next time' })).toBeTruthy();
+    expect(sessions).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Use a passkey next time' }));
+    await waitFor(() => expect(sessions).toEqual([expect.objectContaining({ principal: null })]));
+    expect(actions).toContain('register-household-passkey');
+  });
+
+  it('lets a household visitor continue without saving a passkey', async () => {
+    vi.stubGlobal('PublicKeyCredential', class {});
+    const sessions: unknown[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities'))
+        return Response.json({
+          password: true,
+          passkeys: true,
+          householdPasskeys: false,
+          openHousehold: false,
+        });
+      if (url.endsWith('/household'))
+        return Response.json({ principal: null, expiresAt: Date.now() + 60_000 });
+      throw new Error('Passkey registration should not start');
+    });
+    const view = render(
+      <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
+    );
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
+    fireEvent.click(
+      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue without a passkey' }));
+    expect(sessions).toEqual([expect.objectContaining({ principal: null })]);
+  });
+
+  it('keeps household access available when passkey creation is cancelled', async () => {
+    vi.stubGlobal('PublicKeyCredential', class {});
+    vi.stubGlobal(
+      'navigator',
+      Object.assign(Object.create(navigator), {
+        credentials: {
+          create: async () => {
+            throw new DOMException('Cancelled', 'NotAllowedError');
+          },
+        },
+      }),
+    );
+    const sessions: unknown[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/capabilities'))
+        return Response.json({
+          password: true,
+          passkeys: true,
+          householdPasskeys: false,
+          openHousehold: false,
+        });
+      if (url.endsWith('/household'))
+        return Response.json({ principal: null, expiresAt: Date.now() + 60_000 });
+      if (url.endsWith('/household-register-options'))
+        return Response.json({
+          ceremony: 'challenge',
+          options: {
+            challenge: 'YWJj',
+            rp: { id: 'private.example', name: 'Test' },
+            user: { id: 'aA', name: 'Household', displayName: 'Household' },
+            pubKeyCredParams: [],
+          },
+        });
+      throw new Error(`Unexpected endpoint: ${url}`);
+    });
+    const view = render(
+      <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
+    );
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
+    fireEvent.click(
+      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a passkey next time' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('cancelled');
+    expect(sessions).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue without a passkey' }));
+    expect(sessions).toEqual([expect.objectContaining({ principal: null })]);
+  });
+
   it('enters an explicitly open household without requesting a password', async () => {
     const sessions: unknown[] = [];
     vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {

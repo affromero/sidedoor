@@ -124,7 +124,7 @@ try {
       assert.equal(otherUsage.usageFromGenerationError(failure).inputTokens, 17);
       assert.equal(otherUsage.usageFromGenerationError(failure).outputTokens, 4);
       const { FileStateStore } = await load('thesidedoor-core/storage');
-      const { AccessService, initialAccessState, accessStateSchema, hashPassword } = await load('thesidedoor-core/access');
+      const { AccessService, HouseholdProfileService, initialAccessState, accessStateSchema, hashPassword } = await load('thesidedoor-core/access');
       const { createAccessHandler } = await load('thesidedoor-core/access/http');
       const access = new AccessService({ store: new FileStateStore({ path: './${format}-http.json', initial: initialAccessState, parse: value => accessStateSchema.parse(value) }) });
       const handler = createAccessHandler({ access, origin: 'https://private.example', name: 'Artifact' });
@@ -135,8 +135,13 @@ try {
       const owner = await post('claim', { token: code, name: 'Owner', password: 'artifact owner password', mode: 'household' });
       assert.equal(owner.status, 200);
       const cookie = owner.headers.get('set-cookie');
+      const ownerToken = cookie.split(';')[0].split('=')[1];
+      const ownerId = (await access.store.read()).principals.find(principal => principal.role === 'owner').id;
+      await new HouseholdProfileService(access).select(ownerToken, ownerId);
       const invitation = await post('issue-invitation', {}, cookie);
+      assert.equal(invitation.status, 200);
       const admitted = await post('redeem-invitation', { code: (await invitation.json()).code });
+      assert.equal(admitted.status, 200);
       assert.equal((await post('issue-invitation', {}, admitted.headers.get('set-cookie'))).status, 403);
       let busy;
       await Promise.all(Array.from({ length: 5 }, async () => { try { await hashPassword('artifact concurrency password'); } catch (error) { busy = error; } }));

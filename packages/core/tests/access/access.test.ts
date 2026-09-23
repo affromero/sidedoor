@@ -2,14 +2,20 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AccessService, accessStateSchema, initialAccessState, tokenHash } from '../../src/access/index';
+import {
+  AccessService,
+  HouseholdProfileService,
+  accessStateSchema,
+  initialAccessState,
+  tokenHash,
+} from '../../src/access/index';
 import { FileStateStore } from '../../src/storage/index';
 
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { force: true, recursive: true })));
 });
-async function fixture() {
+async function fixture(mode: 'household' | 'individual' = 'individual') {
   const dir = await mkdtemp(join(tmpdir(), 'sidedoor-access-'));
   directories.push(dir);
   const store = new FileStateStore({
@@ -19,13 +25,53 @@ async function fixture() {
   });
   const service = new AccessService({ store });
   const claim = await service.issueOperatorToken();
-  const owner = await service.claimOwner(claim, 'Owner', 'correct horse battery staple', 'household');
+  const owner = await service.claimOwner(claim, 'Owner', 'correct horse battery staple', mode);
   return { store, service, claim, owner };
 }
 
 describe('instance access', () => {
+  it('uses the owner claim password as the household gate without a second setup step', async () => {
+    const { service, store, owner } = await fixture('household');
+    const admitted = await service.enterHousehold('correct horse battery staple');
+    expect((await service.authenticate(admitted)).principal).toBeNull();
+    await expect(service.login('Owner', 'correct horse battery staple')).rejects.toMatchObject({
+      code: 'unauthorized',
+    });
+    const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+    await new HouseholdProfileService(service).select(owner, ownerId);
+    expect((await service.authenticate(owner, true)).principal?.name).toBe('Owner');
+  });
+  it('keeps hosted account login and recovery available when explicitly enabled', async () => {
+    const { store } = await fixture('household');
+    const hosted = new AccessService({ store, allowPrincipalAccessInHousehold: true });
+    const owner = await hosted.login('Owner', 'correct horse battery staple');
+    expect((await hosted.authenticate(owner)).principal?.role).toBe('owner');
+    const before = (await store.read()).householdPasswordHash;
+    const code = (await hosted.recoveryCodes(owner))[0]!;
+    const recovered = await hosted.recover(code, 'replacement hosted owner password');
+    expect((await hosted.authenticate(recovered)).principal?.role).toBe('owner');
+    expect((await store.read()).householdPasswordHash).toBe(before);
+  });
+  it('uses owner recovery to replace the shared gate and revoke admitted sessions', async () => {
+    const { service, store, owner } = await fixture('household');
+    const ownerId = (await store.read()).principals[0]!.id;
+    await new HouseholdProfileService(service).select(owner, ownerId);
+    const admitted = await service.enterHousehold('correct horse battery staple');
+    const codes = await service.recoveryCodes(owner);
+    const recovered = await service.recover(codes[0]!, 'one replacement household password');
+    expect((await service.authenticate(recovered)).principal).toBeNull();
+    await expect(service.authenticate(admitted)).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(service.enterHousehold('correct horse battery staple')).rejects.toMatchObject({
+      code: 'unauthorized',
+    });
+    const signedIn = await service.enterHousehold('one replacement household password');
+    await new HouseholdProfileService(service).select(signedIn, ownerId);
+    expect((await service.authenticate(signedIn, true)).principal?.role).toBe('owner');
+  });
   it('rejects admission against a superseded password policy even when the password stays the same', async () => {
-    const { service, store, owner } = await fixture();
+    const { service, store, owner } = await fixture('household');
+    const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+    await new HouseholdProfileService(service).select(owner, ownerId);
     await service.configureHousehold(owner, 'household password for guests');
     const before = await store.read();
     await store.transact((state) => {
@@ -193,13 +239,16 @@ describe('instance access', () => {
   });
 
   it('keeps household entry separate from owner privileges', async () => {
-    const { service, owner } = await fixture();
+    const { service, store, owner } = await fixture('household');
+    const ownerId = (await store.read()).principals.find((principal) => principal.role === 'owner')!.id;
+    await new HouseholdProfileService(service).select(owner, ownerId);
     await service.configureHousehold(owner, 'household password for guests');
     const guest = await service.enterHousehold('household password for guests');
     expect((await service.authenticate(guest)).principal).toBeNull();
     await expect(service.authenticate(guest, true)).rejects.toMatchObject({ code: 'forbidden' });
     await expect(service.recoveryCodes(guest)).rejects.toMatchObject({ code: 'forbidden' });
-    await service.configureHousehold(owner, 'replacement household password');
+    await new HouseholdProfileService(service).select(guest, ownerId);
+    await service.configureHousehold(guest, 'replacement household password');
     await expect(service.authenticate(guest)).rejects.toMatchObject({ code: 'unauthorized' });
   });
 

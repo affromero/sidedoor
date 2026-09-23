@@ -9,6 +9,7 @@ import {
   hashConfiguredPassword,
   PASSWORD_INPUT_MAX_BYTES,
   HouseholdProfileService,
+  PrincipalManagement,
   DeviceService,
 } from '../../src/access';
 import { createAccessHandler, validateAccessOrigins, readAccessJson } from '../../src/access/transport/http';
@@ -79,17 +80,33 @@ async function fixture(origin = 'https://private.example') {
   return { access, claim, handle, post };
 }
 describe('browser access endpoints', () => {
+  it('issues a household enrollment ceremony only after password admission on the canonical origin', async () => {
+    const { access, claim, post } = await fixture();
+    await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
+    const invited = await access.store.transact((state) => access.issueSession(state, null, 'Invited'));
+    expect(
+      (await post('household-register-options', {}, { cookie: `sidedoor_session=${invited}` })).status,
+    ).toBe(403);
+    const guest = await access.enterHousehold('owner password for testing');
+    const response = await post('household-register-options', {}, { cookie: `sidedoor_session=${guest}` });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ceremony: expect.any(String),
+      options: { rp: { id: 'private.example' } },
+    });
+    expect((await post('register-options', {}, { cookie: `sidedoor_session=${guest}` })).status).toBe(403);
+  });
+
   it('pairs only the household profile currently selected by the authenticated browser', async () => {
     const { access, claim } = await fixture();
-    const owner = await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
-    await access.configureHousehold(owner, 'household password for testing');
+    await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
     await access.store.transact((state) => {
       state.householdProfiles = [
         { id: 'learner', name: 'Learner', epoch: 0 },
         { id: 'other', name: 'Other', epoch: 0 },
       ];
     });
-    const guest = await access.enterHousehold('household password for testing');
+    const guest = await access.enterHousehold('owner password for testing');
     await new HouseholdProfileService(access).select(guest, 'learner');
     const devices = new DeviceService({ access, scopesFor: () => ['app'] });
     const handle = createAccessHandler({
@@ -199,7 +216,12 @@ describe('browser access endpoints', () => {
         action,
       );
     expect((await post('open-household', {})).status).toBe(403);
-    await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
+    const owner = await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
+    const ownerId = (await access.store.read()).principals.find(
+      (principal) => principal.role === 'owner',
+    )!.id;
+    await new HouseholdProfileService(access).select(owner, ownerId);
+    await access.configureHousehold(owner, null);
     await access.store.transact((state) =>
       state.principals.push({
         id: 'profile',
@@ -296,6 +318,7 @@ describe('browser access endpoints', () => {
     expect(await (await proxy(get(canonical), 'capabilities')).json()).toEqual({
       password: true,
       passkeys: true,
+      householdPasskeys: false,
       openHousehold: false,
     });
     expect((await proxy(get('https://unknown.example'), 'capabilities')).status).toBe(403);
@@ -350,12 +373,23 @@ describe('browser access endpoints', () => {
       password: 'a sufficiently long password',
       mode: 'household',
     });
+    const ownerToken = ownerResponse.headers.get('set-cookie')!.split(';')[0]!.split('=')[1]!;
+    const ownerId = (await access.store.read()).principals.find(
+      (principal) => principal.role === 'owner',
+    )!.id;
+    await new HouseholdProfileService(access).select(ownerToken, ownerId);
     const owner = { cookie: ownerResponse.headers.get('set-cookie')! };
-    const created = await post('add-member', { name: 'Member', password: 'member account password' }, owner);
-    expect(created.status).toBe(201);
-    const memberId = (await created.json()).id;
-    const login = await post('login', { name: 'Member', password: 'member account password' });
-    const member = { cookie: login.headers.get('set-cookie')! };
+    expect(
+      (await post('add-member', { name: 'Member', password: 'member account password' }, owner)).status,
+    ).toBe(403);
+    const memberId = await new PrincipalManagement(access).mutate(ownerToken, {
+      kind: 'create',
+      name: 'Member',
+    });
+    const memberResponse = await post('household', { password: 'a sufficiently long password' });
+    const memberToken = memberResponse.headers.get('set-cookie')!.split(';')[0]!.split('=')[1]!;
+    await new HouseholdProfileService(access).select(memberToken, memberId);
+    const member = { cookie: memberResponse.headers.get('set-cookie')! };
     for (const [action, body] of [
       ['set-role', { id: memberId, role: 'owner' }],
       ['set-mode', { mode: 'individual' }],
@@ -367,14 +401,16 @@ describe('browser access endpoints', () => {
       (await post('configure-household', { password: 'household account password' }, owner)).status,
     ).toBe(200);
     const guest = await access.enterHousehold('household account password');
-    expect((await post('set-mode', { mode: 'individual' }, owner)).status).toBe(200);
+    await new HouseholdProfileService(access).select(guest, ownerId);
+    const activeOwner = { cookie: `sidedoor_session=${guest}` };
+    expect((await post('set-mode', { mode: 'individual' }, activeOwner)).status).toBe(200);
     await expect(access.authenticate(guest)).rejects.toMatchObject({ code: 'unauthorized' });
-    expect((await post('set-role', { id: memberId, role: 'owner' }, owner)).status).toBe(200);
+    const individualOwner = await post('login', { name: 'Owner', password: 'household account password' });
+    const individualOwnerCookie = { cookie: individualOwner.headers.get('set-cookie')! };
+    expect((await post('set-role', { id: memberId, role: 'owner' }, individualOwnerCookie)).status).toBe(400);
     expect(
       (await post('configure-household', { password: 'changed household password' }, member)).status,
     ).toBe(401);
-    const promoted = await post('login', { name: 'Member', password: 'member account password' });
-    expect((await promoted.json()).principal.role).toBe('owner');
   });
 
   it('admits configured LAN password sessions while binding ceremonies to the canonical origin', async () => {
@@ -428,12 +464,21 @@ describe('browser access endpoints', () => {
     for (const action of [
       'register-options',
       'register-passkey',
+      'household-register-options',
+      'register-household-passkey',
       'authentication-options',
       'authenticate-passkey',
+      'household-authentication-options',
+      'authenticate-household-passkey',
     ])
       expect((await post(alias, action, {}, alias, { cookie })).status).toBe(403);
     const capability = await handle(new Request(`${alias}/access/capabilities`), 'capabilities');
-    expect(await capability.json()).toEqual({ password: true, passkeys: false, openHousehold: false });
+    expect(await capability.json()).toEqual({
+      password: true,
+      passkeys: false,
+      householdPasskeys: false,
+      openHousehold: false,
+    });
     const login = await post(canonical, 'login', { name: 'Owner', password: enrollment.password });
     expect(login.status).toBe(200);
     expect(login.headers.get('set-cookie')).toContain('Secure');
@@ -462,8 +507,8 @@ describe('browser access endpoints', () => {
       ).toThrow();
   });
 
-  it('requires owner authentication to issue an invitation and admits its recipient without owner privileges', async () => {
-    const { post, claim } = await fixture();
+  it('allows an admitted visitor to choose Admin after redeeming an invitation', async () => {
+    const { access, post, claim } = await fixture();
     expect((await post('issue-invitation', {})).status).toBe(401);
     const claimed = await post('claim', {
       token: claim,
@@ -471,14 +516,21 @@ describe('browser access endpoints', () => {
       password: 'a sufficiently long password',
       mode: 'household',
     });
+    const ownerId = (await access.store.read()).principals.find(
+      (principal) => principal.role === 'owner',
+    )!.id;
+    const ownerToken = claimed.headers.get('set-cookie')!.split(';')[0]!.split('=')[1]!;
+    await new HouseholdProfileService(access).select(ownerToken, ownerId);
     const invitation = await post('issue-invitation', {}, { cookie: claimed.headers.get('set-cookie')! });
     const input = await invitation.json();
     const admitted = await post('redeem-invitation', { code: input.code });
     expect(admitted.status).toBe(200);
     expect((await admitted.json()).principal).toBeNull();
-    expect((await post('issue-invitation', {}, { cookie: admitted.headers.get('set-cookie')! })).status).toBe(
-      403,
-    );
+    const invitedCookie = admitted.headers.get('set-cookie')!;
+    expect((await post('issue-invitation', {}, { cookie: invitedCookie })).status).toBe(403);
+    const invitedToken = invitedCookie.split(';')[0]!.split('=')[1]!;
+    await new HouseholdProfileService(access).select(invitedToken, ownerId);
+    expect((await post('authorize-owner', {}, { cookie: invitedCookie })).status).toBe(200);
   });
   it('reports an invalid new password without consuming the owner claim', async () => {
     const { post, claim } = await fixture();
@@ -529,9 +581,15 @@ describe('browser access endpoints', () => {
       ).status,
     ).toBe(200);
     const response = await handle(new Request('http://192.168.1.5:3000/access/capabilities'), 'capabilities');
-    expect(await response.json()).toEqual({ password: true, passkeys: false, openHousehold: false });
+    expect(await response.json()).toEqual({
+      password: true,
+      passkeys: false,
+      householdPasskeys: false,
+      openHousehold: false,
+    });
+    expect((await post('household', { password: 'a sufficiently long password' })).status).toBe(200);
     expect((await post('login', { name: 'Owner', password: 'a sufficiently long password' })).status).toBe(
-      200,
+      401,
     );
   });
 });

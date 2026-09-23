@@ -27,6 +27,7 @@ export interface BrowserStoredSession {
 export interface AccessCapabilities {
   password: boolean;
   passkeys: boolean;
+  householdPasskeys?: boolean;
   openHousehold?: boolean;
 }
 export class AccessClientError extends Error {
@@ -47,8 +48,10 @@ const changesCredential = (action: string) =>
     'household',
     'open-household',
     'authentication-options',
+    'household-authentication-options',
     'reauthentication-options',
     'register-options',
+    'household-register-options',
     'session',
     'capabilities',
   ].includes(action);
@@ -111,9 +114,14 @@ export class AccessClient {
       throw invalidSuccess('capabilities');
     if (result.openHousehold !== undefined && typeof result.openHousehold !== 'boolean')
       throw invalidSuccess('capabilities');
+    if (result.householdPasskeys !== undefined && typeof result.householdPasskeys !== 'boolean')
+      throw invalidSuccess('capabilities');
     return {
       password: result.password,
       passkeys: result.passkeys,
+      ...(typeof result.householdPasskeys === 'boolean'
+        ? { householdPasskeys: result.householdPasskeys }
+        : {}),
       ...(typeof result.openHousehold === 'boolean' ? { openHousehold: result.openHousehold } : {}),
     };
   }
@@ -146,7 +154,15 @@ export class AccessClient {
   }
 
   async passkeys(signal?: AbortSignal): Promise<BrowserPasskey[]> {
-    const result = await this.request<{ passkeys?: unknown }>('passkeys', undefined, signal);
+    return this.passkeyList('passkeys', signal);
+  }
+
+  async householdPasskeys(signal?: AbortSignal): Promise<BrowserPasskey[]> {
+    return this.passkeyList('household-passkeys', signal);
+  }
+
+  private async passkeyList(action: string, signal?: AbortSignal): Promise<BrowserPasskey[]> {
+    const result = await this.request<{ passkeys?: unknown }>(action, undefined, signal);
     if (
       !Array.isArray(result.passkeys) ||
       !result.passkeys.every(
@@ -259,6 +275,10 @@ export class AccessClient {
     return this.passkeyAuthentication(false, signal);
   }
 
+  authenticateHouseholdPasskey(signal?: AbortSignal): Promise<BrowserSession> {
+    return this.passkeyAuthentication(false, signal, true);
+  }
+
   reauthenticatePasskey(signal?: AbortSignal): Promise<BrowserSession> {
     return this.passkeyAuthentication(true, signal);
   }
@@ -267,12 +287,24 @@ export class AccessClient {
     return this.sessionRequest('reauthenticate', { password }, signal);
   }
 
-  private passkeyAuthentication(reauthenticate: boolean, signal?: AbortSignal): Promise<BrowserSession> {
+  private passkeyAuthentication(
+    reauthenticate: boolean,
+    signal?: AbortSignal,
+    household = false,
+  ): Promise<BrowserSession> {
     return this.ceremony(async () => {
       const ceremony = await this.request<{
         ceremony: string;
         options: Parameters<typeof startAuthentication>[0]['optionsJSON'];
-      }>(reauthenticate ? 'reauthentication-options' : 'authentication-options', {}, signal);
+      }>(
+        reauthenticate
+          ? 'reauthentication-options'
+          : household
+            ? 'household-authentication-options'
+            : 'authentication-options',
+        {},
+        signal,
+      );
       if (
         typeof ceremony.ceremony !== 'string' ||
         !ceremony.ceremony ||
@@ -285,7 +317,11 @@ export class AccessClient {
       const response = await startAuthentication({ optionsJSON: ceremony.options });
       signal?.throwIfAborted();
       return this.sessionRequest(
-        reauthenticate ? 'reauthenticate-passkey' : 'authenticate-passkey',
+        reauthenticate
+          ? 'reauthenticate-passkey'
+          : household
+            ? 'authenticate-household-passkey'
+            : 'authenticate-passkey',
         { ceremony: ceremony.ceremony, response },
         signal,
       );
@@ -293,11 +329,23 @@ export class AccessClient {
   }
 
   registerPasskey(name: string, signal?: AbortSignal): Promise<{ ok: true }> {
+    return this.registerPasskeyFor(name, signal, false);
+  }
+
+  registerHouseholdPasskey(name: string, signal?: AbortSignal): Promise<{ ok: true }> {
+    return this.registerPasskeyFor(name, signal, true);
+  }
+
+  private registerPasskeyFor(
+    name: string,
+    signal: AbortSignal | undefined,
+    household: boolean,
+  ): Promise<{ ok: true }> {
     return this.ceremony(async () => {
       const ceremony = await this.request<{
         ceremony: string;
         options: Parameters<typeof startRegistration>[0]['optionsJSON'];
-      }>('register-options', {}, signal);
+      }>(household ? 'household-register-options' : 'register-options', {}, signal);
       if (
         typeof ceremony.ceremony !== 'string' ||
         !ceremony.ceremony ||
@@ -312,7 +360,7 @@ export class AccessClient {
       const response = await startRegistration({ optionsJSON: ceremony.options });
       signal?.throwIfAborted();
       const result = await this.request<{ ok?: unknown }>(
-        'register-passkey',
+        household ? 'register-household-passkey' : 'register-passkey',
         { ceremony: ceremony.ceremony, response, name },
         signal,
       );

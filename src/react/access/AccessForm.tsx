@@ -16,6 +16,9 @@ export interface AccessFormCopy {
   password: string;
   code: string;
   passkey: string;
+  savePasskey?: string;
+  savePasskeyHint?: string;
+  continueWithoutPasskey?: string;
   working: string;
   newPasswordHint: string;
   mode: string;
@@ -33,6 +36,10 @@ export const defaultAccessFormCopy: AccessFormCopy = {
   password: 'Password',
   code: 'Recovery or owner-claim code',
   passkey: 'Sign in with a passkey',
+  savePasskey: 'Use a passkey next time',
+  savePasskeyHint:
+    'Save a passkey with your device or password manager to enter your household without typing the password next time.',
+  continueWithoutPasskey: 'Continue without a passkey',
   working: 'Please wait…',
   newPasswordHint: 'Use at least 12 characters.',
   mode: 'Access mode',
@@ -45,7 +52,8 @@ export const defaultAccessFormCopy: AccessFormCopy = {
       forbidden: 'This action is not allowed.',
       conflict: 'The account or instance configuration changed. Check its current state before continuing.',
       rate_limited: 'Too many attempts. Try again later.',
-      cancelled: 'Passkey sign-in was cancelled.',
+      cancelled: 'The passkey prompt was cancelled.',
+      passkey_failed: 'The passkey could not be used. Try again or continue with the password.',
       ceremony_busy: 'A passkey prompt is already open.',
       outcome_unknown: 'The request may have completed. Check whether you can sign in before trying again.',
       network_error: 'Could not reach the instance. Check your connection.',
@@ -56,6 +64,7 @@ export interface AccessFormProps {
   endpoint?: string;
   initialMode?: AccessFormMode;
   modes?: AccessFormMode[];
+  claimModes?: Array<'household' | 'individual'>;
   copy?: Partial<AccessFormCopy>;
   classes?: Partial<
     Record<
@@ -71,6 +80,7 @@ export function AccessForm({
   endpoint,
   initialMode = 'login',
   modes = ['login', 'household', 'recover', 'claim'],
+  claimModes = ['household', 'individual'],
   copy,
   classes = {},
   onSignedIn,
@@ -80,16 +90,22 @@ export function AccessForm({
   const id = useId();
   const [selectedMode, setMode] = useState(initialMode);
   if (!modes.length) throw new Error('AccessForm requires at least one permitted mode');
+  if (!claimModes.length) throw new Error('AccessForm requires at least one claim mode');
   const mode = modes.includes(selectedMode) ? selectedMode : modes[0]!;
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [accessMode, setAccessMode] = useState<'household' | 'individual'>('household');
+  const [accessMode, setAccessMode] = useState<'household' | 'individual'>(claimModes[0]!);
+  const claimMode = claimModes.includes(accessMode) ? accessMode : claimModes[0]!;
   const [passkeys, setPasskeys] = useState(false);
+  const [householdPasskeys, setHouseholdPasskeys] = useState(false);
+  const [pendingSession, setPendingSession] = useState<BrowserSession | null>(null);
   const [openHousehold, setOpenHousehold] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const active = useRef<AbortController | null>(null);
+  const capabilitiesPending = useRef<Promise<void>>(Promise.resolve());
+  const supportsPasskeys = useRef(false);
   const errorElement = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -99,12 +115,17 @@ export function AccessForm({
     setError('');
     setOpenHousehold(false);
     setPasskeys(false);
+    setHouseholdPasskeys(false);
+    supportsPasskeys.current = false;
+    setPendingSession(null);
     const controller = new AbortController();
-    void client
+    capabilitiesPending.current = client
       .capabilities(controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setPasskeys(result.passkeys && browserSupportsWebAuthn());
+          supportsPasskeys.current = result.passkeys && browserSupportsWebAuthn();
+          setPasskeys(supportsPasskeys.current);
+          setHouseholdPasskeys(result.householdPasskeys === true && browserSupportsWebAuthn());
           setOpenHousehold(result.openHousehold === true);
         }
       })
@@ -130,14 +151,18 @@ export function AccessForm({
     setError('');
     let session: BrowserSession | undefined;
     try {
-      if (passkey) session = await client.authenticatePasskey(controller.signal);
+      if (passkey)
+        session =
+          mode === 'household'
+            ? await client.authenticateHouseholdPasskey(controller.signal)
+            : await client.authenticatePasskey(controller.signal);
       else if (mode === 'login') session = await client.login(name, password, controller.signal);
       else if (mode === 'household')
         session = openHousehold
           ? await client.enterOpenHousehold(controller.signal)
           : await client.enterHousehold(password, controller.signal);
       else if (mode === 'claim')
-        session = await client.claim(code, name, password, accessMode, controller.signal);
+        session = await client.claim(code, name, password, claimMode, controller.signal);
       else session = await client.recover(code, password, controller.signal);
       if (!controller.signal.aborted) {
         setPassword('');
@@ -150,9 +175,67 @@ export function AccessForm({
       if (active.current === controller) active.current = null;
       if (!controller.signal.aborted) setBusy(false);
     }
-    if (session && !controller.signal.aborted) onSignedIn(session);
+    if (session && !controller.signal.aborted) {
+      const canEnrollHousehold =
+        !passkey &&
+        ((mode === 'household' && !openHousehold) ||
+          (mode === 'claim' && claimMode === 'household') ||
+          (mode === 'recover' && session.principal === null));
+      if (canEnrollHousehold) await capabilitiesPending.current;
+      if (canEnrollHousehold && supportsPasskeys.current) setPendingSession(session);
+      else onSignedIn(session);
+    }
+  };
+  const enrollHouseholdPasskey = async () => {
+    if (!pendingSession || active.current) return;
+    const controller = new AbortController();
+    active.current = controller;
+    setBusy(true);
+    setError('');
+    try {
+      await client.registerHouseholdPasskey('This device', controller.signal);
+      if (!controller.signal.aborted) onSignedIn(pendingSession);
+    } catch (failure) {
+      if (!controller.signal.aborted)
+        setError(failure instanceof AccessClientError ? failure.code : 'request_failed');
+    } finally {
+      if (active.current === controller) active.current = null;
+      if (!controller.signal.aborted) setBusy(false);
+    }
   };
   const creating = mode === 'claim' || mode === 'recover';
+
+  if (pendingSession)
+    return (
+      <section className={classes.root} aria-busy={busy}>
+        <div className={classes.form}>
+          <p className={classes.hint}>{labels.savePasskeyHint}</p>
+          <button
+            type="button"
+            className={classes.button}
+            disabled={busy}
+            onClick={() => {
+              void enrollHouseholdPasskey();
+            }}
+          >
+            {busy ? labels.working : labels.savePasskey}
+          </button>
+          <button
+            type="button"
+            className={classes.secondary}
+            disabled={busy}
+            onClick={() => onSignedIn(pendingSession)}
+          >
+            {labels.continueWithoutPasskey}
+          </button>
+          {error && (
+            <p className={classes.error} role="alert" tabIndex={-1} ref={errorElement}>
+              {labels.error(error)}
+            </p>
+          )}
+        </div>
+      </section>
+    );
 
   return (
     <section className={classes.root} aria-busy={busy}>
@@ -244,7 +327,7 @@ export function AccessForm({
             {labels.newPasswordHint}
           </p>
         )}
-        {mode === 'claim' && (
+        {mode === 'claim' && claimModes.length > 1 && (
           <>
             <label className={classes.label} htmlFor={`${id}-mode`}>
               {labels.mode}
@@ -252,22 +335,25 @@ export function AccessForm({
             <select
               id={`${id}-mode`}
               className={classes.input}
-              value={accessMode}
+              value={claimMode}
               onChange={(event) =>
                 setAccessMode(event.target.value === 'individual' ? 'individual' : 'household')
               }
               disabled={busy}
             >
-              <option value="household">{labels.householdMode}</option>
-              <option value="individual">{labels.individualMode}</option>
+              {claimModes.map((value) => (
+                <option key={value} value={value}>
+                  {value === 'household' ? labels.householdMode : labels.individualMode}
+                </option>
+              ))}
             </select>
           </>
         )}
         <button type="submit" className={classes.button} disabled={busy}>
           {busy ? labels.working : labels[mode]}
         </button>
-        {mode === 'login' &&
-          (passkeys ? (
+        {(mode === 'login' || mode === 'household') &&
+          ((mode === 'login' ? passkeys : householdPasskeys) ? (
             <button
               type="button"
               className={classes.secondary}
@@ -278,9 +364,9 @@ export function AccessForm({
             >
               {labels.passkey}
             </button>
-          ) : (
+          ) : mode === 'login' ? (
             <p className={classes.hint}>{labels.passkeyUnavailable}</p>
-          ))}
+          ) : null)}
         {error && (
           <p className={classes.error} role="alert" tabIndex={-1} ref={errorElement}>
             {labels.error(error)}

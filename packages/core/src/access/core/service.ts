@@ -35,6 +35,8 @@ export function transitionAccessMode(state: AccessState, mode: AccessState['mode
   state.mode = mode;
   state.policyEpoch++;
   state.householdEpoch++;
+  state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+  state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
   state.sessions = state.sessions.filter((session) => session.principalId !== null);
   state.deviceTokens = state.deviceTokens.filter((device) => device.principalId !== null);
   state.tokens = state.tokens.filter((token) => token.kind !== 'pair' || token.principalId !== null);
@@ -46,6 +48,7 @@ export interface AccessOptions {
   householdSessionTtlMs?: number;
   recentAuthMs?: number;
   allowOpenHousehold?: boolean;
+  allowPrincipalAccessInHousehold?: boolean;
   now?: () => number;
 }
 export interface AuthenticatedSession {
@@ -60,6 +63,7 @@ export class AccessService {
   private readonly ttl: number;
   private readonly householdTtl: number;
   private readonly allowOpenHousehold: boolean;
+  readonly allowPrincipalAccessInHousehold: boolean;
 
   constructor(options: AccessOptions) {
     this.store = options.store;
@@ -67,6 +71,7 @@ export class AccessService {
     this.ttl = options.sessionTtlMs ?? 30 * 24 * 60 * 60 * 1000;
     this.householdTtl = options.householdSessionTtlMs ?? this.ttl;
     this.allowOpenHousehold = options.allowOpenHousehold ?? false;
+    this.allowPrincipalAccessInHousehold = options.allowPrincipalAccessInHousehold ?? false;
     this.recentAuthMs = options.recentAuthMs ?? 5 * 60 * 1000;
     if (
       ![this.ttl, this.householdTtl, this.recentAuthMs].every(
@@ -86,26 +91,65 @@ export class AccessService {
       throw new AccessError('unauthorized');
     if (!principal && (state.mode !== 'household' || state.householdEpoch !== session.epoch))
       throw new AccessError('unauthorized');
-    if (owner && principal?.role !== 'owner') throw new AccessError('forbidden');
-    if (recent && session.authenticatedAt + this.recentAuthMs <= this.now())
+    const selectedOwner = this.householdOwnerForSession(state, session);
+    if (owner && principal?.role !== 'owner' && !selectedOwner) throw new AccessError('forbidden');
+    if (recent && session.authenticatedAt + this.recentAuthMs <= this.now() && !selectedOwner)
       throw new AccessError('unauthorized');
-    const safePrincipal = principal
+    const authorizedPrincipal = principal ?? (owner ? selectedOwner : null);
+    const safePrincipal = authorizedPrincipal
       ? {
-          id: principal.id,
-          name: principal.name,
-          role: principal.role,
-          epoch: principal.epoch,
-          createdAt: principal.createdAt,
+          id: authorizedPrincipal.id,
+          name: authorizedPrincipal.name,
+          role: authorizedPrincipal.role,
+          epoch: authorizedPrincipal.epoch,
+          createdAt: authorizedPrincipal.createdAt,
         }
       : null;
     return { session, principal: safePrincipal };
+  }
+
+  householdOwnerForSession(state: AccessState, session: Session): Principal | null {
+    if (
+      state.mode !== 'household' ||
+      !state.sessions.includes(session) ||
+      session.expiresAt <= this.now() ||
+      session.epoch !== state.householdEpoch ||
+      session.principalId !== null ||
+      (state.householdProfiles !== undefined) !== (session.selectedProfileSource === 'explicit')
+    )
+      return null;
+    const profile = state.householdProfiles?.find((item) => item.id === session.selectedProfileId);
+    const implicit =
+      state.householdProfiles === undefined
+        ? state.principals.find((item) => item.id === session.selectedProfileId && !item.pendingRole)
+        : null;
+    if (profile && profile.epoch !== session.selectedProfileEpoch) return null;
+    if (implicit && implicit.epoch !== session.selectedProfileEpoch) return null;
+    if (!profile && !implicit) return null;
+    return (
+      state.principals.find(
+        (item) =>
+          item.id === (profile?.ownerPrincipalId ?? profile?.id ?? implicit?.id) && item.role === 'owner',
+      ) ?? null
+    );
+  }
+
+  householdOwnerFromState(state: AccessState, token: string): boolean {
+    const auth = this.sessionFromState(state, token);
+    return auth.principal?.role === 'owner' || this.householdOwnerForSession(state, auth.session) !== null;
   }
 
   async authenticate(token: string, owner = false, recent = false): Promise<AuthenticatedSession> {
     return this.sessionFromState(await this.store.read(), token, owner, recent);
   }
 
-  issueSession(state: AccessState, principalId: string | null, name: string): string {
+  issueSession(
+    state: AccessState,
+    principalId: string | null,
+    name: string,
+    householdEnrollmentAvailable = false,
+    admission?: Session['admission'],
+  ): string {
     const principal = principalId ? state.principals.find((item) => item.id === principalId) : null;
     if (principalId && !principal) throw new AccessError('unauthorized');
     const raw = newToken();
@@ -124,6 +168,8 @@ export class AccessService {
       createdAt: now,
       authenticatedAt: now,
       expiresAt: now + (principal ? this.ttl : this.householdTtl),
+      ...(householdEnrollmentAvailable ? { householdEnrollmentAvailable: true } : {}),
+      ...(admission ? { admission } : {}),
     });
     return raw;
   }
@@ -187,7 +233,10 @@ export class AccessService {
       };
       state.principals.push(principal);
       state.mode = mode;
-      return this.issueSession(state, principal.id, 'Owner setup');
+      if (mode === 'household') state.householdPasswordHash = passwordHash;
+      return mode === 'household'
+        ? this.issueSession(state, null, 'Household setup', true, 'password')
+        : this.issueSession(state, principal.id, 'Owner setup');
     });
   }
 
@@ -219,6 +268,8 @@ export class AccessService {
     const normalized = name.trim().toLowerCase();
     await this.reserveAttempt(`password:${normalized}`);
     const snapshot = await this.store.read();
+    if (snapshot.mode === 'household' && !this.allowPrincipalAccessInHousehold)
+      throw new AccessError('unauthorized');
     const candidates = snapshot.principals.filter((item) => item.name.toLowerCase() === normalized);
     const principal =
       candidates.find((item) => item.name === name.trim()) ??
@@ -249,7 +300,14 @@ export class AccessService {
       this.sessionFromState(state, ownerToken, true, true);
       state.householdPasswordHash = encoded;
       state.householdEpoch++;
-      state.sessions = state.sessions.filter((item) => item.principalId !== null);
+      for (const principal of state.principals) {
+        if (principal.role !== 'owner') continue;
+        if (encoded !== null) principal.passwordHash = encoded;
+        principal.epoch++;
+      }
+      state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+      state.challenges = state.challenges.filter((challenge) => !challenge.kind.endsWith('-household'));
+      state.sessions = [];
     });
   }
 
@@ -276,6 +334,8 @@ export class AccessService {
 
   async reauthenticate(token: string, password: string): Promise<string> {
     const auth = await this.authenticate(token);
+    if ((await this.store.read()).mode === 'household' && !this.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
     const principal = await this.passwordProof(auth, password);
     return this.store.transact((state) => {
       this.sessionFromState(state, token);
@@ -296,6 +356,8 @@ export class AccessService {
     currentPassword?: string,
   ): Promise<string> {
     const auth = await this.authenticate(token, false, currentPassword === undefined);
+    if ((await this.store.read()).mode === 'household' && !this.allowPrincipalAccessInHousehold)
+      throw new AccessError('forbidden');
     const proof = currentPassword === undefined ? null : await this.passwordProof(auth, currentPassword);
     if (!auth.principal) throw new AccessError('forbidden');
     const encoded = await hashPassword(password);
@@ -346,10 +408,13 @@ export class AccessService {
       if (replacement !== snapshot.householdPasswordHash) {
         state.householdPasswordHash = replacement;
         state.householdEpoch++;
+        for (const key of state.passkeys) {
+          if (key.scope === 'household') key.householdEpoch = state.householdEpoch;
+        }
         state.sessions = state.sessions.filter((item) => item.principalId !== null);
       }
       state.failures = state.failures.filter((item) => item.key !== rateLimitKey('household'));
-      return this.issueSession(state, null, deviceName);
+      return this.issueSession(state, null, deviceName, true, 'password');
     });
   }
 
@@ -392,7 +457,7 @@ export class AccessService {
       if (state.failures.length >= 1000) throw new AccessError('rate_limited');
       state.failures.push({ key, count: 1, expiresAt: now + 60_000 });
     }
-    return this.issueSession(state, null, deviceName);
+    return this.issueSession(state, null, deviceName, false, 'open');
   }
 
   async supportsOpenHousehold(): Promise<boolean> {
@@ -411,7 +476,7 @@ export class AccessService {
     return state.sessions.filter(
       (session) =>
         session.expiresAt > this.now() &&
-        (auth.principal?.role === 'owner' ||
+        (this.householdOwnerFromState(state, token) ||
           (auth.principal ? session.principalId === auth.principal.id : session.id === auth.session.id)),
     );
   }
@@ -422,7 +487,7 @@ export class AccessService {
       const target = state.sessions.find((item) => item.id === id);
       if (!target) return;
       if (
-        auth.principal?.role !== 'owner' &&
+        !this.householdOwnerFromState(state, token) &&
         (auth.principal ? target.principalId !== auth.principal.id : target.id !== auth.session.id)
       )
         throw new AccessError('forbidden');
@@ -438,7 +503,7 @@ export class AccessService {
 
   async recoveryCodes(token: string): Promise<string[]> {
     return this.store.transact((state) => {
-      const { principal } = this.sessionFromState(state, token, false, true);
+      const { principal } = this.sessionFromState(state, token, state.mode === 'household', true);
       if (!principal) throw new AccessError('forbidden');
       const codes = Array.from({ length: 8 }, newToken);
       state.recoveryCodes = state.recoveryCodes.filter((item) => item.principalId !== principal.id);
@@ -475,13 +540,23 @@ export class AccessService {
         principal.role = 'owner';
         delete principal.pendingRole;
       }
+      if (state.mode === 'household' && !this.allowPrincipalAccessInHousehold) {
+        if (principal.role !== 'owner') throw new AccessError('forbidden');
+        state.householdPasswordHash = encoded;
+        state.householdEpoch++;
+        state.passkeys = state.passkeys.filter((key) => key.scope !== 'household');
+        state.sessions = [];
+        state.challenges = state.challenges.filter((item) => !item.kind.endsWith('-household'));
+      }
       principal.passwordHash = encoded;
       principal.epoch++;
       state.sessions = state.sessions.filter((item) => item.principalId !== principal.id);
       state.recoveryCodes = state.recoveryCodes.filter((item) => item.principalId !== principal.id);
       state.tokens = state.tokens.filter((item) => item.principalId !== principal.id);
       state.challenges = state.challenges.filter((item) => item.principalId !== principal.id);
-      return this.issueSession(state, principal.id, 'Recovered browser');
+      return state.mode === 'household' && !this.allowPrincipalAccessInHousehold
+        ? this.issueSession(state, null, 'Recovered household', true, 'password')
+        : this.issueSession(state, principal.id, 'Recovered browser');
     });
   }
 }

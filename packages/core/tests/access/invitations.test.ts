@@ -2,7 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AccessService, InvitationService, accessStateSchema, initialAccessState } from '../../src/access';
+import {
+  AccessService,
+  HouseholdProfileService,
+  InvitationService,
+  accessStateSchema,
+  initialAccessState,
+} from '../../src/access';
 import { FileStateStore } from '../../src/storage';
 
 const directories: string[] = [];
@@ -25,6 +31,12 @@ async function fixture(mode: 'individual' | 'household' = 'household') {
     'owner password for testing',
     mode,
   );
+  if (mode === 'household') {
+    const ownerId = (await access.store.read()).principals.find(
+      (principal) => principal.role === 'owner',
+    )!.id;
+    await new HouseholdProfileService(access).select(owner, ownerId);
+  }
   return { access, owner, invites: new InvitationService(access) };
 }
 describe('instance invitations', () => {
@@ -45,7 +57,10 @@ describe('instance invitations', () => {
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     const success = results.find((result) => result.status === 'fulfilled');
     if (success?.status !== 'fulfilled') throw new Error('Invitation failed');
-    expect((await access.authenticate(success.value)).principal).toBeNull();
+    expect(await access.authenticate(success.value)).toMatchObject({
+      principal: null,
+      session: { admission: 'invitation' },
+    });
     await expect(invites.issue(success.value)).rejects.toMatchObject({ code: 'forbidden' });
   });
   it('preserves explicitly reusable household invitations until revoked', async () => {
