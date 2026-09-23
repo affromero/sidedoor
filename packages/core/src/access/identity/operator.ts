@@ -11,16 +11,22 @@ async function hiddenPassword(prompt: string): Promise<string> {
   process.stdin.resume();
   try {
     return await new Promise<string>((resolve, reject) => {
+      const decoder = new TextDecoder();
       const onData = (chunk: Buffer) => {
-        const input = chunk.toString('utf8');
-        if (input === '\r' || input === '\n') {
-          process.stdin.off('data', onData);
-          resolve(value);
-        } else if (input === '\u0003') {
-          process.stdin.off('data', onData);
-          reject(new Error('Household setup cancelled.'));
-        } else if (input === '\u007f') value = value.slice(0, -1);
-        else if (!input.includes('\u001b')) value += input;
+        for (const character of decoder.decode(chunk, { stream: true })) {
+          if (character === '\r' || character === '\n') {
+            process.stdin.off('data', onData);
+            resolve(value);
+            return;
+          }
+          if (character === '\u0003' || character === '\u001b') {
+            process.stdin.off('data', onData);
+            reject(new Error('Household setup cancelled.'));
+            return;
+          }
+          if (character === '\u007f') value = Array.from(value).slice(0, -1).join('');
+          else if (character >= ' ') value += character;
+        }
       };
       process.stdin.on('data', onData);
     });
