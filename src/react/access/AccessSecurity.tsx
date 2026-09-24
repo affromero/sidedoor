@@ -1,4 +1,5 @@
 import { AccessVerification } from './AccessVerification';
+import { rememberPasskey } from './preferences/passkey';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   AccessClient,
@@ -302,7 +303,10 @@ export function AccessSecurity({
                         labels.defaultPasskeyName ?? 'This device',
                         signal,
                       );
-                      if (!signal.aborted) (onHouseholdEntered ?? onSignInRequired)();
+                      if (!signal.aborted) {
+                        rememberPasskey(endpoint);
+                        (onHouseholdEntered ?? onSignInRequired)();
+                      }
                     }, false);
                   }}
                 >

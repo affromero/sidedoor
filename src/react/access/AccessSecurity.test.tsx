@@ -2,8 +2,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccessSecurity } from './AccessSecurity';
+import { AccessForm } from './AccessForm';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
 
 const session = {
   principal: { id: 'owner', name: 'Owner', role: 'owner' },
@@ -32,6 +36,7 @@ describe('account security', () => {
       let admitted = false;
       let saved = false;
       let continued = false;
+      let returning = false;
       vi.stubGlobal('PublicKeyCredential', class {});
       vi.stubGlobal(
         'navigator',
@@ -54,9 +59,13 @@ describe('account security', () => {
         }),
       );
       vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
-        if (url.endsWith('/session')) return Response.json({ ...session, principal: null });
+        if (url.endsWith('/session'))
+          return returning
+            ? Response.json({ error: 'unauthorized' }, { status: 401 })
+            : Response.json({ ...session, principal: null });
         if (url.endsWith('/authorize-owner')) return Response.json({ ok: true });
-        if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: true });
+        if (url.endsWith('/capabilities'))
+          return Response.json({ password: true, passkeys: true, householdPasskeys: saved });
         if (url.endsWith('/household')) {
           expect(JSON.parse(String(options.body))).toEqual({ password: 'shared app password' });
           admitted = true;
@@ -81,7 +90,7 @@ describe('account security', () => {
         }
         return reads(url);
       });
-      render(
+      const view = render(
         <AccessSecurity
           showRecoveryCodes={false}
           onSignInRequired={() => {}}
@@ -108,6 +117,19 @@ describe('account security', () => {
       }
       await waitFor(() => expect(continued).toBe(true));
       expect(saved).toBe(!cancelled);
+      view.unmount();
+      returning = true;
+      const onSignedIn = vi.fn();
+      render(<AccessForm initialMode="household" modes={['household']} onSignedIn={onSignedIn} />);
+      const button = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement;
+      await waitFor(() => expect(button.disabled).toBe(false));
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'shared app password' } });
+      fireEvent.click(button);
+      if (cancelled) expect(await screen.findByText('Use a passkey next time')).toBeTruthy();
+      else
+        await waitFor(() =>
+          expect(onSignedIn).toHaveBeenCalledWith(expect.objectContaining({ principal: null })),
+        );
     },
   );
 

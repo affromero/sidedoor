@@ -4,8 +4,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccessForm } from './AccessForm';
 
 afterEach(() => {
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
+
+async function enterPassword(view: ReturnType<typeof render>, password = 'household password') {
+  const button = within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } });
+  fireEvent.click(button);
+}
 
 describe('shared access form', () => {
   it('gives the shared password a stable account name for browser credential saving', () => {
@@ -79,6 +87,7 @@ describe('shared access form', () => {
     const sessions: unknown[] = [];
     const actions: string[] = [];
     vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       actions.push(url.split('/').pop()!);
       if (url.endsWith('/capabilities'))
         return Response.json({
@@ -105,8 +114,7 @@ describe('shared access form', () => {
     const view = render(
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
+    await enterPassword(view);
     expect(await screen.findByRole('button', { name: 'Use a passkey next time' })).toBeTruthy();
     expect(sessions).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Use a passkey next time' }));
@@ -118,6 +126,7 @@ describe('shared access form', () => {
     vi.stubGlobal('PublicKeyCredential', class {});
     const sessions: unknown[] = [];
     vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       if (url.endsWith('/capabilities'))
         return Response.json({
           password: true,
@@ -132,8 +141,7 @@ describe('shared access form', () => {
     const view = render(
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
+    await enterPassword(view);
     fireEvent.click(await screen.findByRole('button', { name: 'Continue without a passkey' }));
     expect(sessions).toEqual([expect.objectContaining({ principal: null })]);
   });
@@ -152,6 +160,7 @@ describe('shared access form', () => {
     );
     const sessions: unknown[] = [];
     vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       if (url.endsWith('/capabilities'))
         return Response.json({
           password: true,
@@ -176,8 +185,7 @@ describe('shared access form', () => {
     const view = render(
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
+    await enterPassword(view);
     fireEvent.click(await screen.findByRole('button', { name: 'Use a passkey next time' }));
     expect((await screen.findByRole('alert')).textContent).toContain('cancelled');
     expect(sessions).toEqual([]);
@@ -188,6 +196,7 @@ describe('shared access form', () => {
   it('enters an explicitly open household without requesting a password', async () => {
     const sessions: unknown[] = [];
     vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       if (url.endsWith('/capabilities'))
         return Response.json({ password: true, passkeys: false, openHousehold: true });
       if (!url.endsWith('/open-household')) throw new Error('Unexpected endpoint');
@@ -198,6 +207,15 @@ describe('shared access form', () => {
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
     await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull());
+    await waitFor(() =>
+      expect(
+        (
+          within(view.container.querySelector('form')!).getByRole('button', {
+            name: 'Continue',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
     fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(sessions).toEqual([expect.objectContaining({ principal: null })]));
   });
@@ -218,6 +236,7 @@ describe('shared access form', () => {
 
   it('aborts an old endpoint request and restores the form after its endpoint changes', async () => {
     vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
       return new Promise<Response>((resolve, reject) => {
         if (!options.signal) {
@@ -235,8 +254,7 @@ describe('shared access form', () => {
     const view = render(
       <AccessForm endpoint="/old/access" initialMode="household" onSignedIn={onSignedIn} />,
     );
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'old endpoint password' } });
-    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
+    await enterPassword(view, 'old endpoint password');
     view.rerender(<AccessForm endpoint="/new/access" initialMode="household" onSignedIn={onSignedIn} />);
     await waitFor(() => expect((screen.getByLabelText('Password') as HTMLInputElement).disabled).toBe(false));
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('');
@@ -245,6 +263,7 @@ describe('shared access form', () => {
   it('preserves household-only admission and clears its password after success', async () => {
     const sessions: unknown[] = [];
     vi.stubGlobal('fetch', async (url: string, options: RequestInit) => {
+      if (url.endsWith('/session')) return Response.json({ error: 'unauthorized' }, { status: 401 });
       if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
       const body = JSON.parse(String(options.body));
       if (!url.endsWith('/household') || body.password !== 'existing household password')
@@ -259,8 +278,7 @@ describe('shared access form', () => {
         }}
       />,
     );
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'existing household password' } });
-    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
+    await enterPassword(view, 'existing household password');
     await waitFor(() => expect(sessions).toEqual([expect.objectContaining({ principal: null })]));
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('');
   });
