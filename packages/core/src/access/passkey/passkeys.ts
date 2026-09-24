@@ -78,7 +78,7 @@ export class PasskeyService extends PasskeyManagement {
       rpName: this.name,
       rpID: this.rpId,
       userID: new TextEncoder().encode(household ? 'household' : principal!.id),
-      userName: household ? 'Household' : principal!.name,
+      userName: household ? this.name : principal!.name,
       attestationType: 'none',
       excludeCredentials: state.passkeys
         .filter((key) =>

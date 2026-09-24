@@ -37,23 +37,23 @@ export interface AccessFormCopy {
 }
 export const defaultAccessFormCopy: AccessFormCopy = {
   login: 'Sign in',
-  household: 'Enter household',
+  household: 'Continue',
   claim: 'Claim instance',
   recover: 'Recover account',
   name: 'Account name',
   householdAccountLabel: 'Shared account',
-  householdAccount: 'Household',
+  householdAccount: 'App access',
   password: 'Password',
   code: 'Recovery or owner-claim code',
   passkey: 'Sign in with a passkey',
   savePasskey: 'Use a passkey next time',
   savePasskeyHint:
-    'Save a passkey with your device or password manager to enter your household without typing the password next time.',
+    'Save a passkey with your device or password manager so you can open the app without typing its password next time.',
   continueWithoutPasskey: 'Continue without a passkey',
   working: 'Please wait…',
   newPasswordHint: 'Use at least 12 characters.',
   mode: 'Access mode',
-  householdMode: 'Household',
+  householdMode: 'One shared password',
   individualMode: 'Individual accounts',
   passkeyUnavailable: 'Passkeys require this instance’s configured secure address and a compatible browser.',
   error: (code) =>
@@ -296,21 +296,14 @@ export function AccessForm({
         }}
       >
         {mode === 'household' && !openHousehold && (
-          <>
-            <label className={classes.label} htmlFor={`${id}-household-account`}>
-              {labels.householdAccountLabel}
-            </label>
-            <input
-              id={`${id}-household-account`}
-              className={classes.input}
-              type="text"
-              name="username"
-              value={labels.householdAccount ?? 'Household'}
-              autoComplete="username"
-              readOnly
-              tabIndex={-1}
-            />
-          </>
+          <input
+            type="text"
+            name="username"
+            value={labels.householdAccount ?? 'App access'}
+            autoComplete="username"
+            readOnly
+            hidden
+          />
         )}
         {(mode === 'login' || mode === 'claim') && (
           <>

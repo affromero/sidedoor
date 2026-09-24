@@ -26,6 +26,7 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
+      - run: npm ls --workspaces --package-lock-only
       - run: npm run check
       - run: npm run format:check
       - run: npm run test:package-install -- --retain-artifacts "$RUNNER_TEMP/release-packages"

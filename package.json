@@ -1,6 +1,6 @@
 {
   "name": "thesidedoor",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "React access and private connectivity components for self-hosted AI applications. Server infrastructure is available in thesidedoor-core.",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",

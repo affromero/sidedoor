@@ -170,7 +170,7 @@ The core access service owns password verification, WebAuthn passkeys, sessions,
 ```mermaid
 flowchart LR
   Setup[Local server setup creates first Admin and shared password] --> Gate[One shared password]
-  Gate --> Entry[Enter household]
+  Gate --> Entry[Continue]
   Entry --> Save[Offer native passkey enrollment]
   Save --> Picker[Application profile picker]
   Entry --> Picker
@@ -180,7 +180,15 @@ flowchart LR
   Picker --> Member[Other profiles: personal content]
 ```
 
-The server operator runs local `access setup` to create the first Admin profile and shared password before opening the app. Visitors see only that password or a household passkey, then choose a profile. `AccessForm` offers to save a passkey with Apple Passwords or another WebAuthn manager after password entry. A visitor can skip this step. A saved passkey opens the same profile picker on later visits. Anyone who knows the shared password can choose Admin and change app settings. Choosing another profile removes that authority. Changing the shared password revokes household sessions and passkeys. If the password is lost, the server operator runs local `access reset`; no recovery code is needed. Household invitations cannot bypass the shared password. Set `showRecoveryCodes={false}` on `AccessSecurity` for a private household app. The [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts) show how to mount this flow. Public hosted apps that need separate account login can opt in with `allowPrincipalAccessInHousehold`.
+The server operator runs local `access setup` to create the first Admin profile and shared password before opening the app. Visitors enter that one password and select Continue. There is no account name to enter. `AccessForm` then offers an optional passkey through Apple Passwords or another WebAuthn manager, followed by the application's profile picker. A saved passkey opens the same picker on later visits.
+
+Use `initialMode="household"` and `modes={["household"]}` for this shared-password flow. Set `copy.householdAccount` to your app name so password managers can label the saved credential without displaying a username field. The core access service's relying-party name also labels native passkey prompts. These options do not create separate user accounts.
+
+Anyone admitted with the shared password or a passkey can choose Admin and change app settings. Choosing another profile removes that authority. Changing the shared password revokes shared sessions and passkeys. If the password is lost, the server operator runs local `access reset`; no recovery code is needed. Invitations cannot bypass the shared password.
+
+Import `thesidedoor/styles.css` for the shared settings layout. Set `showRecoveryCodes={false}` and `copy.passwordManagerName` to your app name on `AccessSecurity`. Passkey enrollment and password changes have expandable explanations, while other signed-in browsers appear in a separate expandable list. Application classes supply colors and typography.
+
+The [`access` modules](https://github.com/affromero/sidedoor/tree/main/packages/core/src/access) and [HTTP contract](https://github.com/affromero/sidedoor/blob/main/packages/core/src/access/transport/http.ts) show how to mount this flow. Public hosted apps that need separate account login can opt in with `allowPrincipalAccessInHousehold`.
 
 ## Choose storage
 

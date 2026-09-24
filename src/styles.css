@@ -1,5 +1,84 @@
+/* Shared access controls inherit the application's colors and typography. */
+:where(.sd-access-security) {
+  width: 100%;
+  max-width: 42rem;
+  min-width: 0;
+  line-height: 1.5;
+}
+:where(.sd-access-security h2, .sd-access-security h3) {
+  margin: 0 0 0.5rem;
+}
+:where(.sd-access-security > h2) {
+  font-size: 1.4rem;
+}
+:where(.sd-security-section) {
+  padding: 1.5rem 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  margin-top: 1rem;
+}
+:where(.sd-security-section h3) {
+  font-size: 1rem;
+}
+:where(.sd-security-form) {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 30rem;
+  margin-top: 1rem;
+}
+:where(.sd-security-form input:not([hidden])) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+}
+:where(.sd-security-primary, .sd-security-secondary) {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+:where(.sd-security-primary:disabled, .sd-security-secondary:disabled) {
+  cursor: wait;
+  opacity: 0.6;
+}
+:where(.sd-security-list) {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+}
+:where(.sd-security-list > li) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+}
+:where(.sd-security-list > li > span) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:where(.sd-security-list button) {
+  flex-shrink: 0;
+}
+:where(.sd-security-disclosure > summary) {
+  min-height: 44px;
+  align-content: center;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+:where(.sd-security-disclosure > summary:focus-visible) {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+:where(.sd-security-disclosure[open] > summary) {
+  margin-bottom: 0.5rem;
+}
+
 /*
- * sidedoor default styles. Import once: `import 'sidedoor/styles.css'`.
+ * sidedoor default styles. Import once: `import 'thesidedoor/styles.css'`.
  * Theme by overriding the --sd-* custom properties on a parent (e.g. :root or
  * a wrapper). Defaults are a clean, neutral light palette.
  */

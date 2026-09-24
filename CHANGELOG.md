@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-09-24
+
+### Fixed
+
+- Shared-password entry displays only Password and Continue. An invisible app
+  label identifies the credential to browser password managers.
+- Native passkey prompts use the application name.
+- App access settings group passkeys, password changes, and signed-in browsers
+  with explanations and expandable controls. Manual passkey setup no longer
+  requires a name. Cancelling enrollment still lets visitors choose a profile.
+- Package checks reject invalid workspace dependency resolutions.
+
 ## [0.3.2] - 2026-09-23
 
 ### Changed
@@ -86,3 +98,4 @@ the connect flow in [Flight Finder](https://github.com/affromero/flight-finder).
 [0.3.0]: https://github.com/affromero/sidedoor/releases/tag/v0.3.0
 [0.3.1]: https://github.com/affromero/sidedoor/releases/tag/v0.3.1
 [0.3.2]: https://github.com/affromero/sidedoor/releases/tag/v0.3.2
+[0.3.3]: https://github.com/affromero/sidedoor/releases/tag/v0.3.3

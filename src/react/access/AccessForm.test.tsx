@@ -13,13 +13,24 @@ describe('shared access form', () => {
       if (url.endsWith('/capabilities')) return Response.json({ password: true, passkeys: false });
       throw new Error(`Unexpected endpoint: ${url}`);
     });
-    render(<AccessForm initialMode="household" modes={['household']} onSignedIn={() => {}} />);
-    const account = screen.getByRole('textbox', { name: 'Shared account' }) as HTMLInputElement;
+    const view = render(
+      <AccessForm
+        initialMode="household"
+        modes={['household']}
+        copy={{ householdAccount: 'Papernook' }}
+        onSignedIn={() => {}}
+      />,
+    );
+    const account = view.container.querySelector('input[autocomplete="username"]') as HTMLInputElement;
     expect(screen.queryByRole('navigation')).toBeNull();
-    expect(account.value).toBe('Household');
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText('Shared account')).toBeNull();
+    expect(account.value).toBe('Papernook');
+    expect(account.hidden).toBe(true);
     expect(account.readOnly).toBe(true);
     expect(account.getAttribute('autocomplete')).toBe('username');
     expect(screen.getByLabelText('Password')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
   });
 
   it('explains when each access path applies', () => {
@@ -29,7 +40,7 @@ describe('shared access form', () => {
     });
     const view = render(<AccessForm initialMode="household" onSignedIn={() => {}} />);
     const navigation = within(view.container.querySelector('nav')!);
-    expect(navigation.getByRole('button', { name: 'Enter household' }).title).toContain('shared password');
+    expect(navigation.getByRole('button', { name: 'Continue' }).title).toContain('shared password');
     expect(navigation.getByRole('button', { name: 'Recover account' }).title).toContain('recovery code');
     expect(navigation.getByRole('button', { name: 'Claim instance' }).title).toContain('owner-claim code');
   });
@@ -95,9 +106,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('button', { name: 'Use a passkey next time' })).toBeTruthy();
     expect(sessions).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Use a passkey next time' }));
@@ -124,9 +133,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue without a passkey' }));
     expect(sessions).toEqual([expect.objectContaining({ principal: null })]);
   });
@@ -170,9 +177,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'household password' } });
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use a passkey next time' }));
     expect((await screen.findByRole('alert')).textContent).toContain('cancelled');
     expect(sessions).toEqual([]);
@@ -193,9 +198,7 @@ describe('shared access form', () => {
       <AccessForm initialMode="household" onSignedIn={(session) => sessions.push(session)} />,
     );
     await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull());
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(sessions).toEqual([expect.objectContaining({ principal: null })]));
   });
 
@@ -233,9 +236,7 @@ describe('shared access form', () => {
       <AccessForm endpoint="/old/access" initialMode="household" onSignedIn={onSignedIn} />,
     );
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'old endpoint password' } });
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     view.rerender(<AccessForm endpoint="/new/access" initialMode="household" onSignedIn={onSignedIn} />);
     await waitFor(() => expect((screen.getByLabelText('Password') as HTMLInputElement).disabled).toBe(false));
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('');
@@ -259,9 +260,7 @@ describe('shared access form', () => {
       />,
     );
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'existing household password' } });
-    fireEvent.click(
-      within(view.container.querySelector('form')!).getByRole('button', { name: 'Enter household' }),
-    );
+    fireEvent.click(within(view.container.querySelector('form')!).getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(sessions).toEqual([expect.objectContaining({ principal: null })]));
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('');
   });
