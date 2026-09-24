@@ -1,5 +1,7 @@
 function key(endpoint = '/api/access'): string {
-  return `sidedoor:passkey-saved:${endpoint.replace(/\/+$/, '')}`;
+  let end = endpoint.length;
+  while (end > 0 && endpoint[end - 1] === '/') end -= 1;
+  return `sidedoor:passkey-saved:${endpoint.slice(0, end)}`;
 }
 
 /** A browser preference only. Admission always requires a server-verified session. */
