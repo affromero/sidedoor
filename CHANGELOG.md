@@ -9,12 +9,18 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - Shared-password entry displays only Password and Continue. An invisible app
-  label identifies the credential to browser password managers.
-- Native passkey prompts use the application name.
+  label identifies the credential to browser password managers. ([#55](https://github.com/affromero/sidedoor/pull/55))
+- Native passkey prompts use the application name. ([#55](https://github.com/affromero/sidedoor/pull/55))
 - App access settings group passkeys, password changes, and signed-in browsers
   with explanations and expandable controls. Manual passkey setup no longer
-  requires a name. Cancelling enrollment still lets visitors choose a profile.
-- Package checks reject invalid workspace dependency resolutions.
+  requires a name. Cancelling enrollment still lets visitors choose a profile. ([#55](https://github.com/affromero/sidedoor/pull/55), closes [#54](https://github.com/affromero/sidedoor/issues/54))
+- Package checks reject invalid workspace dependency resolutions. ([#55](https://github.com/affromero/sidedoor/pull/55))
+
+### Changed
+
+- Update the Anthropic and Google provider SDKs and the native build dependency
+  while retaining Node 20 support for the React package. ([#52](https://github.com/affromero/sidedoor/pull/52))
+- Update the CodeQL workflow. ([#53](https://github.com/affromero/sidedoor/pull/53))
 
 ## [0.3.2] - 2026-09-23
 
