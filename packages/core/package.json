@@ -239,8 +239,8 @@
     "test:artifact": "node tests/misc/artifact.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
-    "@google/genai": "2.22.0",
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@google/genai": "2.23.0",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "14.0.2",
     "openai": "^7.15.0",
@@ -250,6 +250,6 @@
     "thesidedoor-flock": "0.3.2"
   },
   "devDependencies": {
-    "@types/node": "22.19.11"
+    "@types/node": "26.6.1"
   }
 }
