@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { hasSavedPasskey, rememberPasskey } from './preferences/passkey';
 import {
   AccessClient,
   AccessClientError,
@@ -124,14 +125,20 @@ export function AccessForm({
   const [pendingSession, setPendingSession] = useState<BrowserSession | null>(null);
   const [openHousehold, setOpenHousehold] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(mode === 'household');
   const [error, setError] = useState('');
   const active = useRef<AbortController | null>(null);
   const capabilitiesPending = useRef<Promise<void>>(Promise.resolve());
   const supportsPasskeys = useRef(false);
   const errorElement = useRef<HTMLParagraphElement>(null);
+  const signedIn = useRef(onSignedIn);
+  useEffect(() => {
+    signedIn.current = onSignedIn;
+  }, [onSignedIn]);
 
   useEffect(() => {
     setBusy(false);
+    setCheckingSession(mode === 'household');
     setPassword('');
     setCode('');
     setError('');
@@ -149,24 +156,44 @@ export function AccessForm({
           setPasskeys(supportsPasskeys.current);
           setHouseholdPasskeys(result.householdPasskeys === true && browserSupportsWebAuthn());
           setOpenHousehold(result.openHousehold === true);
+          if (mode === 'household' && result.householdPasskeys === false) rememberPasskey(endpoint, false);
         }
       })
       .catch((failure) => {
         if (!controller.signal.aborted)
           setError(failure instanceof AccessClientError ? failure.code : 'network_error');
       });
+    if (mode === 'household') {
+      void Promise.all([
+        capabilitiesPending.current,
+        client.session(controller.signal).catch((failure: unknown) => {
+          if (failure instanceof AccessClientError && failure.status === 401) return null;
+          throw failure;
+        }),
+      ])
+        .then(([, session]) => {
+          if (!controller.signal.aborted && session) signedIn.current(session);
+        })
+        .catch((failure: unknown) => {
+          if (!controller.signal.aborted)
+            setError(failure instanceof AccessClientError ? failure.code : 'network_error');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setCheckingSession(false);
+        });
+    }
     return () => {
       controller.abort();
       active.current?.abort();
       active.current = null;
     };
-  }, [client, mode]);
+  }, [client, mode, endpoint]);
   useEffect(() => {
     if (error) errorElement.current?.focus();
   }, [error]);
 
   const submit = async (passkey = false) => {
-    if (active.current) return;
+    if (active.current || checkingSession) return;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
@@ -190,22 +217,24 @@ export function AccessForm({
         setPassword('');
         setCode('');
       }
-    } catch (failure) {
-      if (!controller.signal.aborted)
-        setError(failure instanceof AccessClientError ? failure.code : 'request_failed');
-    } finally {
-      if (active.current === controller) active.current = null;
-      if (!controller.signal.aborted) setBusy(false);
-    }
-    if (session && !controller.signal.aborted) {
+      if (controller.signal.aborted) return;
+      if (passkey && mode === 'household') rememberPasskey(endpoint);
       const canEnrollHousehold =
         !passkey &&
         ((mode === 'household' && !openHousehold) ||
           (mode === 'claim' && claimMode === 'household') ||
           (mode === 'recover' && session.principal === null));
       if (canEnrollHousehold) await capabilitiesPending.current;
-      if (canEnrollHousehold && supportsPasskeys.current) setPendingSession(session);
-      else onSignedIn(session);
+      if (controller.signal.aborted) return;
+      if (canEnrollHousehold && supportsPasskeys.current && !hasSavedPasskey(endpoint))
+        setPendingSession(session);
+      else signedIn.current(session);
+    } catch (failure) {
+      if (!controller.signal.aborted)
+        setError(failure instanceof AccessClientError ? failure.code : 'request_failed');
+    } finally {
+      if (active.current === controller) active.current = null;
+      if (!controller.signal.aborted) setBusy(false);
     }
   };
   const enrollHouseholdPasskey = async () => {
@@ -216,7 +245,10 @@ export function AccessForm({
     setError('');
     try {
       await client.registerHouseholdPasskey('This device', controller.signal);
-      if (!controller.signal.aborted) onSignedIn(pendingSession);
+      if (!controller.signal.aborted) {
+        rememberPasskey(endpoint);
+        signedIn.current(pendingSession);
+      }
     } catch (failure) {
       if (!controller.signal.aborted)
         setError(failure instanceof AccessClientError ? failure.code : 'request_failed');
@@ -260,7 +292,7 @@ export function AccessForm({
     );
 
   return (
-    <section className={classes.root} aria-busy={busy}>
+    <section className={classes.root} aria-busy={busy || checkingSession}>
       {modes.length > 1 && (
         <nav className={classes.navigation} aria-label={labels.mode}>
           {modes.map((value) => (
@@ -391,7 +423,7 @@ export function AccessForm({
             </select>
           </>
         )}
-        <button type="submit" className={classes.button} disabled={busy}>
+        <button type="submit" className={classes.button} disabled={busy || checkingSession}>
           {busy ? labels.working : labels[mode]}
         </button>
         {(mode === 'login' || mode === 'household') &&
@@ -399,7 +431,7 @@ export function AccessForm({
             <button
               type="button"
               className={classes.secondary}
-              disabled={busy}
+              disabled={busy || checkingSession}
               onClick={() => {
                 void submit(true);
               }}

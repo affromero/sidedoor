@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-09-24
+
+### Fixed
+
+- Reloading shared-password entry resumes an existing session and continues to
+  the app's profile routing. ([#57](https://github.com/affromero/sidedoor/pull/57))
+- Successful passkey creation or sign-in stops repeated setup offers in that
+  browser. New browsers can still enroll, and removing all passkeys restores
+  the offer. Cancelling a prompt or blocking browser storage preserves access.
+  ([#57](https://github.com/affromero/sidedoor/pull/57), closes [#56](https://github.com/affromero/sidedoor/issues/56))
+
 ## [0.3.3] - 2026-09-24
 
 ### Fixed
@@ -104,4 +115,5 @@ the connect flow in [Flight Finder](https://github.com/affromero/flight-finder).
 [0.3.0]: https://github.com/affromero/sidedoor/releases/tag/v0.3.0
 [0.3.1]: https://github.com/affromero/sidedoor/releases/tag/v0.3.1
 [0.3.2]: https://github.com/affromero/sidedoor/releases/tag/v0.3.2
+[0.3.4]: https://github.com/affromero/sidedoor/releases/tag/v0.3.4
 [0.3.3]: https://github.com/affromero/sidedoor/releases/tag/v0.3.3
