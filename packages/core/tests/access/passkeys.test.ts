@@ -144,6 +144,8 @@ describe('passkey authentication', () => {
     expect((await access.authenticate(household)).session.admission).toBe('password');
     const device = authenticator();
     const registration = await passkeys.householdRegistrationOptions(household, origin);
+    expect(registration.options.user.name).toBe('Test');
+    expect(registration.options.rp.name).toBe('Test');
     await passkeys.registerHousehold(
       household,
       registration.ceremony,

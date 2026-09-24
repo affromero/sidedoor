@@ -12,6 +12,19 @@ import { defaultAccessFormCopy, type AccessFormProps } from './AccessForm';
 
 export interface AccessSecurityCopy {
   title: string;
+  householdTitle?: string;
+  householdHint?: string;
+  passkeysHint?: string;
+  enrollPasskey?: string;
+  confirmHouseholdPassword?: string;
+  defaultPasskeyName?: string;
+  continueToProfiles?: string;
+  householdPasswordTitle?: string;
+  householdPasswordHint?: string;
+  sessionsHint?: string;
+  otherSessions?: string;
+  passwordManagerName?: string;
+  savedBrowser?: string;
   verify: string;
   currentPassword: string;
   verifyPassword: string;
@@ -41,12 +54,27 @@ export interface AccessSecurityCopy {
 }
 const defaultCopy: AccessSecurityCopy = {
   title: 'Account security',
+  householdTitle: 'App access',
+  householdHint: 'One shared password opens the app. Everyone then chooses a profile.',
+  passkeysHint: 'A passkey lets you enter with Touch ID, Face ID, a security key or your password manager.',
+  enrollPasskey: 'Save a passkey',
+  confirmHouseholdPassword:
+    'Confirm the shared password, then follow your device’s prompt. You will choose your profile again afterward.',
+  defaultPasskeyName: 'This device',
+  continueToProfiles: 'Continue to profiles',
+  householdPasswordTitle: 'Change shared password',
+  householdPasswordHint:
+    'This changes the password for everyone, signs out all browsers and removes saved passkeys. Share the new password with the people who use this app.',
+  sessionsHint: 'These browsers have access to the app. Signing one out requires it to enter again.',
+  otherSessions: 'Other signed-in browsers',
+  passwordManagerName: 'App access',
+  savedBrowser: 'Saved browser',
   verify: 'Verify your identity before changing credentials.',
   currentPassword: 'Current password',
   verifyPassword: 'Verify with password',
   verifyPasskey: 'Verify with passkey',
   passkeys: 'Passkeys',
-  householdPasskeys: 'Household passkeys',
+  householdPasskeys: 'Passkeys',
   passkeyName: 'Passkey name',
   addPasskey: 'Add passkey',
   remove: 'Remove',
@@ -57,8 +85,8 @@ const defaultCopy: AccessSecurityCopy = {
   hideCodes: 'Hide codes',
   password: 'New password',
   changePassword: 'Change password',
-  sessions: 'Sessions',
-  thisSession: 'This session',
+  sessions: 'Signed-in browsers',
+  thisSession: 'This browser',
   signOut: 'Sign out',
   signIn: defaultAccessFormCopy.login,
   empty: 'None yet.',
@@ -80,13 +108,20 @@ export interface AccessSecurityProps {
 
 export function AccessSecurity({
   endpoint,
-  classes = {},
+  classes: overrides = {},
   copy,
   showRecoveryCodes = true,
   onSignInRequired,
   onHouseholdEntered,
 }: AccessSecurityProps) {
   const client = useMemo(() => new AccessClient({ endpoint }), [endpoint]);
+  const classes = {
+    ...overrides,
+    root: `sd-access-security ${overrides.root ?? ''}`,
+    form: `sd-security-form ${overrides.form ?? ''}`,
+    button: `sd-security-primary ${overrides.button ?? ''}`,
+    secondary: `sd-security-secondary ${overrides.secondary ?? ''}`,
+  };
   const labels = { ...defaultCopy, ...copy };
   const id = useId();
   const [session, setSession] = useState<BrowserSession | null>(null);
@@ -97,6 +132,7 @@ export function AccessSecurity({
   const [supportsPasskeys, setSupportsPasskeys] = useState(false);
   const [replacement, setReplacement] = useState('');
   const [householdPassword, setHouseholdPassword] = useState('');
+  const [householdEntered, setHouseholdEntered] = useState(false);
   const [name, setName] = useState('');
   const [codes, setCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -146,6 +182,7 @@ export function AccessSecurity({
     setCodes([]);
     setReplacement('');
     setHouseholdPassword('');
+    setHouseholdEntered(false);
     setBusy(false);
     setLoading(true);
     setName('');
@@ -204,7 +241,7 @@ export function AccessSecurity({
 
   return (
     <section className={classes.root} aria-busy={busy || loading}>
-      <h2>{labels.title}</h2>
+      <h2>{householdAdmin ? labels.householdTitle : labels.title}</h2>
       {error && (
         <p className={classes.error} role="alert" tabIndex={-1} ref={errorElement}>
           {error === 'refresh_failed' ? labels.refreshFailed : labels.error(error)}
@@ -221,103 +258,144 @@ export function AccessSecurity({
         </p>
       ) : householdAdmin && session ? (
         <>
-          <h3>{labels.householdPasskeys}</h3>
-          {householdKeys.length ? (
-            <ul>
-              {householdKeys.map((key) => (
-                <li key={key.id}>
-                  {key.name}{' '}
-                  <button
-                    className={classes.secondary}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      void run(async (signal) => {
-                        await client.mutation('remove-household-passkey', { id: key.id }, signal);
-                      });
-                    }}
-                  >
-                    {labels.remove}
+          <p className={classes.hint}>{labels.householdHint}</p>
+          <section className="sd-security-section" aria-labelledby={`${id}-passkeys-heading`}>
+            <h3 id={`${id}-passkeys-heading`}>{labels.householdPasskeys}</h3>
+            <p className={classes.hint}>{labels.passkeysHint}</p>
+            {householdKeys.length ? (
+              <ul className="sd-security-list">
+                {householdKeys.map((key) => (
+                  <li key={key.id}>
+                    <span>{key.name}</span>
+                    <button
+                      className={classes.secondary}
+                      type="button"
+                      disabled={busy || householdEntered}
+                      onClick={() => {
+                        void run(async (signal) => {
+                          await client.mutation('remove-household-passkey', { id: key.id }, signal);
+                        });
+                      }}
+                    >
+                      {labels.remove}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={classes.hint}>{labels.empty}</p>
+            )}
+            {supportsPasskeys ? (
+              <details className="sd-security-disclosure">
+                <summary>{labels.enrollPasskey}</summary>
+                <form
+                  className={classes.form}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run(async (signal) => {
+                      if (!householdEntered) {
+                        await client.enterHousehold(householdPassword, signal);
+                        if (signal.aborted) return;
+                        setHouseholdEntered(true);
+                      }
+                      await client.registerHouseholdPasskey(
+                        labels.defaultPasskeyName ?? 'This device',
+                        signal,
+                      );
+                      if (!signal.aborted) (onHouseholdEntered ?? onSignInRequired)();
+                    }, false);
+                  }}
+                >
+                  <p className={classes.hint}>{labels.confirmHouseholdPassword}</p>
+                  {!householdEntered && (
+                    <>
+                      <input
+                        type="text"
+                        name="username"
+                        autoComplete="username"
+                        value={labels.passwordManagerName}
+                        readOnly
+                        hidden
+                      />
+                      <label className={classes.label} htmlFor={`${id}-household-current`}>
+                        {labels.currentPassword}
+                      </label>
+                      <input
+                        id={`${id}-household-current`}
+                        className={classes.input}
+                        type="password"
+                        name="password"
+                        autoComplete="current-password"
+                        value={householdPassword}
+                        onChange={(event) => setHouseholdPassword(event.target.value)}
+                        required
+                        disabled={busy}
+                      />
+                    </>
+                  )}
+                  <button className={classes.button} disabled={busy} type="submit">
+                    {busy ? labels.working : labels.enrollPasskey}
                   </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={classes.hint}>{labels.empty}</p>
+                  {householdEntered && (
+                    <button
+                      className={classes.secondary}
+                      disabled={busy}
+                      type="button"
+                      onClick={() => (onHouseholdEntered ?? onSignInRequired)()}
+                    >
+                      {labels.continueToProfiles}
+                    </button>
+                  )}
+                </form>
+              </details>
+            ) : (
+              <p className={classes.hint}>{labels.passkeyUnavailable}</p>
+            )}
+          </section>
+          {!householdEntered && (
+            <section className="sd-security-section">
+              <details className="sd-security-disclosure">
+                <summary>{labels.householdPasswordTitle}</summary>
+                <p className={classes.hint}>{labels.householdPasswordHint}</p>
+                <form
+                  className={classes.form}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run(async (signal) => {
+                      await client.mutation('configure-household', { password: replacement }, signal);
+                      if (!signal.aborted) onSignInRequired();
+                    }, false);
+                  }}
+                >
+                  <input
+                    type="text"
+                    name="username"
+                    autoComplete="username"
+                    value={labels.passwordManagerName}
+                    readOnly
+                    hidden
+                  />
+                  <label className={classes.label} htmlFor={`${id}-household-new`}>
+                    {labels.password}
+                  </label>
+                  <input
+                    id={`${id}-household-new`}
+                    className={classes.input}
+                    type="password"
+                    autoComplete="new-password"
+                    value={replacement}
+                    onChange={(event) => setReplacement(event.target.value)}
+                    minLength={12}
+                    required
+                    disabled={busy}
+                  />
+                  <button className={classes.button} disabled={busy} type="submit">
+                    {labels.changePassword}
+                  </button>
+                </form>
+              </details>
+            </section>
           )}
-          {supportsPasskeys ? (
-            <form
-              className={classes.form}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run(async (signal) => {
-                  await client.enterHousehold(householdPassword, signal);
-                  await client.registerHouseholdPasskey(name, signal);
-                  if (!signal.aborted) (onHouseholdEntered ?? onSignInRequired)();
-                }, false);
-              }}
-            >
-              <label className={classes.label} htmlFor={`${id}-household-name`}>
-                {labels.passkeyName}
-              </label>
-              <input
-                id={`${id}-household-name`}
-                className={classes.input}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={100}
-                required
-                disabled={busy}
-              />
-              <label className={classes.label} htmlFor={`${id}-household-current`}>
-                {labels.currentPassword}
-              </label>
-              <input
-                id={`${id}-household-current`}
-                className={classes.input}
-                type="password"
-                autoComplete="current-password"
-                value={householdPassword}
-                onChange={(event) => setHouseholdPassword(event.target.value)}
-                required
-                disabled={busy}
-              />
-              <button className={classes.button} disabled={busy} type="submit">
-                {labels.addPasskey}
-              </button>
-            </form>
-          ) : (
-            <p className={classes.hint}>{labels.passkeyUnavailable}</p>
-          )}
-          <h3>{labels.password}</h3>
-          <form
-            className={classes.form}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void run(async (signal) => {
-                await client.mutation('configure-household', { password: replacement }, signal);
-                if (!signal.aborted) onSignInRequired();
-              }, false);
-            }}
-          >
-            <label className={classes.label} htmlFor={`${id}-household-new`}>
-              {labels.password}
-            </label>
-            <input
-              id={`${id}-household-new`}
-              className={classes.input}
-              type="password"
-              autoComplete="new-password"
-              value={replacement}
-              onChange={(event) => setReplacement(event.target.value)}
-              minLength={12}
-              required
-              disabled={busy}
-            />
-            <button className={classes.button} disabled={busy} type="submit">
-              {labels.changePassword}
-            </button>
-          </form>
           {showRecoveryCodes && (
             <>
               <h3>{labels.recovery}</h3>
@@ -351,27 +429,67 @@ export function AccessSecurity({
               )}
             </>
           )}
-          <h3>{labels.sessions}</h3>
-          <ul>
-            {sessions.map((device) => (
-              <li key={device.id}>
-                {device.id === session.sessionId ? labels.thisSession : device.name}{' '}
-                <button
-                  className={classes.secondary}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    void run(async (signal) => {
-                      await client.mutation('revoke-session', { id: device.id }, signal);
-                      if (device.id === session.sessionId && !signal.aborted) onSignInRequired();
-                    }, device.id !== session.sessionId);
-                  }}
-                >
-                  {labels.signOut}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {!householdEntered && (
+            <section className="sd-security-section" aria-labelledby={`${id}-sessions-heading`}>
+              <h3 id={`${id}-sessions-heading`}>{labels.sessions}</h3>
+              <p className={classes.hint}>{labels.sessionsHint}</p>
+              <ul className="sd-security-list">
+                {sessions
+                  .filter((device) => device.id === session.sessionId)
+                  .map((device) => (
+                    <li key={device.id}>
+                      <span>{labels.thisSession}</span>
+                      <button
+                        className={classes.secondary}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          void run(async (signal) => {
+                            await client.mutation('revoke-session', { id: device.id }, signal);
+                            if (device.id === session.sessionId && !signal.aborted) onSignInRequired();
+                          }, device.id !== session.sessionId);
+                        }}
+                      >
+                        {labels.signOut}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+              {sessions.some((device) => device.id !== session.sessionId) && (
+                <details className="sd-security-disclosure">
+                  <summary>
+                    {labels.otherSessions} (
+                    {sessions.filter((device) => device.id !== session.sessionId).length})
+                  </summary>
+                  <ul className="sd-security-list">
+                    {sessions
+                      .filter((device) => device.id !== session.sessionId)
+                      .map((device) => (
+                        <li key={device.id}>
+                          <span>
+                            {['Household browser', 'Owner setup', 'Browser'].includes(device.name)
+                              ? labels.savedBrowser
+                              : device.name}
+                          </span>
+                          <button
+                            className={classes.secondary}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              void run(async (signal) => {
+                                await client.mutation('revoke-session', { id: device.id }, signal);
+                              });
+                            }}
+                          >
+                            {labels.signOut}
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+          )}
         </>
       ) : !session?.principal ? (
         <button type="button" className={classes.button} onClick={onSignInRequired}>
