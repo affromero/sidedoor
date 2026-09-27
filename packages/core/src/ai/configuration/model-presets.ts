@@ -4,13 +4,26 @@ export interface ModelPreset {
   shortDisplayName: string;
   tier: 'fast' | 'balanced' | 'best' | 'max';
   contextWindow: number;
-  maxOutputTokens: number;
+  /** Null when the provider has not published a numeric output ceiling. */
+  maxOutputTokens: number | null;
   pricing?: { inputPerMTok: number; outputPerMTok: number };
   isReasoning?: boolean;
 }
 
 /** Presets describe known models. Runtime discovery remains authoritative for availability. */
 const presets: Record<string, readonly ModelPreset[]> = {
+  meta: [
+    {
+      id: 'muse-spark-1.3',
+      displayName: 'Muse Spark 1.3 (Standard)',
+      shortDisplayName: 'Spark 1.3',
+      tier: 'balanced',
+      contextWindow: 1048576,
+      maxOutputTokens: null,
+      isReasoning: true,
+      pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+    },
+  ],
   anthropic: [
     {
       id: 'claude-haiku-4-5-20251001',

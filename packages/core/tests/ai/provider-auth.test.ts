@@ -11,6 +11,9 @@ it('retains provider-specific compatible endpoints without falling back to anoth
   expect(providerCompatibleConnection('groq')).toEqual({
     baseURL: 'https://api.groq.com/openai/v1',
   });
+  expect(providerCompatibleConnection('meta')).toEqual({ baseURL: 'https://api.meta.ai/v1' });
+  expect(providerCredentials('meta', 'text').credentialProvider).toBe('meta');
+  expect(() => providerCredentials('meta', 'transcription')).toThrow('does not support');
   expect(providerCompatibleConnection('nvidia')).toEqual({
     baseURL: 'https://integrate.api.nvidia.com/v1',
   });

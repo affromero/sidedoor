@@ -2,6 +2,9 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   entry: {
+    'runtime/delegation': 'src/runtime/delegation/index.ts',
+    'runtime/isolated': 'src/runtime/isolated.ts',
+    'runtime/credential-broker': 'src/runtime/credential-broker.ts',
     'providers/transport': 'src/providers/transport.ts',
     'configuration/credential-client': 'src/configuration/credential-client.ts',
     'configuration/credential-sharing': 'src/configuration/credential-sharing.ts',

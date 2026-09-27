@@ -204,10 +204,19 @@ try {
     import { createRequire } from 'node:module';
     import { acquireFileLockSync } from 'thesidedoor-core/storage';
     import { reconcileOutboxPage } from 'thesidedoor-core/runtime/outbox';
+    import { DelegationStore } from 'thesidedoor-core/runtime/delegation';
+    import { DockerIsolatedRunner } from 'thesidedoor-core/runtime/isolated';
+    import * as broker from 'thesidedoor-core/runtime/credential-broker';
     await import('thesidedoor/react');
     const require = createRequire(import.meta.url);
     require('thesidedoor/react');
     assert.equal(typeof reconcileOutboxPage, 'function');
+    assert.equal(typeof DelegationStore, 'function');
+    assert.equal(typeof DockerIsolatedRunner, 'function');
+    assert.ok(Object.keys(broker).length > 0);
+    for (const entry of ['delegation', 'isolated', 'credential-broker']) {
+      assert.ok(Object.keys(require('thesidedoor-core/runtime/' + entry)).length > 0);
+    }
       const release = acquireFileLockSync('./installed.lock');
       release();
       const commonStorage = require('thesidedoor-core/storage');

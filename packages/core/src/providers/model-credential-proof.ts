@@ -14,6 +14,7 @@ const anthropicPage = z.object({
 
 /** These exact model-list routes document authentication. Public/custom catalogs do not inherit proof. */
 const compatibleEndpoints = new Set([
+  'https://api.meta.ai/v1/models',
   'https://api.openai.com/v1/models',
   'https://generativelanguage.googleapis.com/v1beta/openai/models',
   'https://api.groq.com/openai/v1/models',

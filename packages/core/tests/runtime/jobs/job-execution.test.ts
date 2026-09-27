@@ -19,6 +19,8 @@ import { runStorageProbe } from '../../../src/storage/probe';
 import { StorageInstanceControl } from '../../../src/storage/sql/instance';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
 import { RedisSemaphoreLease, waitForSemaphore } from '../../../src/runtime/sync/semaphore';
+import { IsolatedCleanupError } from '../../../src/runtime/isolated';
+import { CredentialBrokerCleanupError } from '../../../src/runtime/credential-broker';
 
 describe('owned durable job execution', () => {
   let database: DatabaseSync;
@@ -297,25 +299,35 @@ describe('owned durable job execution', () => {
     expect('directory' in workspace).toBe(true);
     expect(await readFile(join(root, `execution-${record()!.id}`, 'audio'), 'utf8')).toBe('replacement');
   });
-  it('retains pending I/O files even when the application classifier rejects shared cleanup errors', async () => {
-    const options = await fixture();
-    const failure = new StorageReadCleanupError({ cause: new Error('Pending write') });
-    await expect(
-      runJobExecution({
-        ...options,
-        run: async ({ directory }) => {
-          await writeFile(join(directory!, 'audio'), 'pending');
-          throw failure;
-        },
-      }),
-    ).rejects.toBe(failure);
-    expect(record()).toMatchObject({ status: 'cleanup-unconfirmed' });
-    expect(await readFile(join(root, `execution-${record()!.id}`, 'audio'), 'utf8')).toBe('pending');
-    const journal = new JobExecutionJournal(executor(), 'sqlite', 'app');
-    await expect(journal.requireParentDrained(options.parentId, options.fingerprint)).rejects.toThrow(
-      'unresolved',
-    );
-  });
+  it.each([
+    new StorageReadCleanupError({ cause: new Error('Pending write') }),
+    new IsolatedCleanupError({
+      containerName: `sidedoor-${randomUUID()}`,
+      executionId: 'test',
+      daemonId: 'daemon',
+    }),
+    new CredentialBrokerCleanupError(),
+  ])(
+    'retains pending I/O files even when the application classifier rejects shared cleanup errors: %s',
+    async (failure) => {
+      const options = await fixture();
+      await expect(
+        runJobExecution({
+          ...options,
+          run: async ({ directory }) => {
+            await writeFile(join(directory!, 'audio'), 'pending');
+            throw failure;
+          },
+        }),
+      ).rejects.toBe(failure);
+      expect(record()).toMatchObject({ status: 'cleanup-unconfirmed' });
+      expect(await readFile(join(root, `execution-${record()!.id}`, 'audio'), 'utf8')).toBe('pending');
+      const journal = new JobExecutionJournal(executor(), 'sqlite', 'app');
+      await expect(journal.requireParentDrained(options.parentId, options.fingerprint)).rejects.toThrow(
+        'unresolved',
+      );
+    },
+  );
   it('retains provider uncertainty without a workspace after a lost journal response', async () => {
     const options = await fixture();
     fault = 'cleanup-unconfirmed';
