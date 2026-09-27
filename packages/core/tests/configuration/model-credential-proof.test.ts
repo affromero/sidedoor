@@ -32,6 +32,7 @@ function registry(endpoint = 'https://api.openai.com/v1') {
 }
 
 it.each([
+  'https://api.meta.ai/v1',
   'https://api.openai.com/v1',
   'https://generativelanguage.googleapis.com/v1beta/openai',
   'https://api.groq.com/openai/v1',

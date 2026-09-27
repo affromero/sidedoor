@@ -7,6 +7,8 @@ import {
 } from './execution-journal';
 import { canonicalJson } from '../process/json';
 import { ProcessExecutionError } from '../process/process';
+import { IsolatedCleanupError } from '../isolated';
+import { CredentialBrokerCleanupError } from '../credential-broker';
 import { SemaphoreCleanupError } from '../sync/semaphore';
 import { StorageReadCleanupError } from '../../storage/local/owned-copy';
 import { StorageProbeCleanupError } from '../../storage/probe-errors';
@@ -35,6 +37,8 @@ export function isJobExecutionCleanupFailure(error: unknown): boolean {
     seen.add(current);
     if (
       current instanceof JobExecutionCleanupError ||
+      current instanceof IsolatedCleanupError ||
+      current instanceof CredentialBrokerCleanupError ||
       current instanceof StorageReadCleanupError ||
       current instanceof StorageProbeCleanupError ||
       current instanceof SemaphoreCleanupError ||

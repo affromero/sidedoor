@@ -21,6 +21,13 @@ interface Identity {
 }
 
 const identities: Record<string, Identity> = {
+  meta: {
+    compatibleApi: { baseURL: 'https://api.meta.ai/v1' },
+    label: 'Meta (Muse)',
+    helpUrl: 'https://dev.meta.ai/',
+    fields: [{ id: 'apiKey', label: 'API Key', kind: 'string', required: true, secret: true }],
+    modalities: ['text'],
+  },
   pricetoken: {
     label: 'PriceToken',
     helpUrl: 'https://pricetoken.com',

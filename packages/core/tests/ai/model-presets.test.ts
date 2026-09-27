@@ -1,6 +1,18 @@
 import { expect, it } from 'vitest';
 import { modelPresets, modelSuggestions } from '../../src/ai/configuration/catalog';
 
+it('offers Standard Muse without silently enrolling callers in Contributor training', () => {
+  expect(modelPresets('meta')).toEqual([
+    expect.objectContaining({
+      id: 'muse-spark-1.3',
+      contextWindow: 1048576,
+      maxOutputTokens: null,
+      pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+    }),
+  ]);
+  expect(modelSuggestions('meta')).toEqual(['muse-spark-1.3']);
+});
+
 it('isolates consumer pricing enrichment and model ordering', () => {
   const original = modelPresets('groq');
   const consumer = modelPresets('groq');

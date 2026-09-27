@@ -84,6 +84,18 @@ const definitions = {
     displayName: 'OpenAI Codex (CLI)',
     models: [{ id: 'codex', name: 'Codex CLI', costPer1kInput: 0, costPer1kOutput: 0 }],
   },
+  meta: {
+    displayName: 'Meta (Muse)',
+    defaultBaseUrl: 'https://api.meta.ai/v1',
+    models: [
+      {
+        id: 'muse-spark-1.3',
+        name: 'Muse Spark 1.3 (Standard)',
+        costPer1kInput: 0.00125,
+        costPer1kOutput: 0.00425,
+      },
+    ],
+  },
 } satisfies Record<string, ProviderMeta>;
 export type ProviderId = keyof typeof definitions;
 export const PROVIDER_IDS = Object.keys(definitions) as ProviderId[];

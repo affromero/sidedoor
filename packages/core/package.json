@@ -36,6 +36,21 @@
     "dist"
   ],
   "exports": {
+    "./runtime/delegation": {
+      "types": "./dist/runtime/delegation.d.ts",
+      "import": "./dist/runtime/delegation.js",
+      "require": "./dist/runtime/delegation.cjs"
+    },
+    "./runtime/isolated": {
+      "types": "./dist/runtime/isolated.d.ts",
+      "import": "./dist/runtime/isolated.js",
+      "require": "./dist/runtime/isolated.cjs"
+    },
+    "./runtime/credential-broker": {
+      "types": "./dist/runtime/credential-broker.d.ts",
+      "import": "./dist/runtime/credential-broker.js",
+      "require": "./dist/runtime/credential-broker.cjs"
+    },
     "./runtime/semaphore": {
       "types": "./dist/runtime/semaphore.d.ts",
       "import": "./dist/runtime/semaphore.js",
