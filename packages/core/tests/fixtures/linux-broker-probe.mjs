@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import process from 'node:process';
 import console from 'node:console';
-import { DockerIsolatedRunner } from '/test/isolated.cjs';
-import { startCredentialBroker, isolatedClaudeRelay } from '/test/credential-broker.cjs';
+import { DockerIsolatedRunner } from 'thesidedoor-core/runtime/isolated';
+import { startCredentialBroker, isolatedClaudeRelay } from 'thesidedoor-core/runtime/credential-broker';
 
 const model = 'claude-sonnet-4-6';
 const events = [
