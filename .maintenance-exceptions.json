@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "tool": "knip",
+      "mode": "all",
+      "file": "packages/flock/package.json",
+      "kind": "binaries",
+      "name": "node-gyp",
+      "reason": "npm supplies node-gyp for the native addon install script."
+    },
+    {
+      "tool": "knip",
+      "mode": "all",
+      "file": "packages/flock/package.json",
+      "kind": "dependencies",
+      "name": "nan",
+      "reason": "binding.gyp loads NAN headers for the native flock addon."
+    },
+    {
+      "tool": "knip",
+      "mode": "production",
+      "file": "packages/core/src/runtime/ssh/ssh-command.ts",
+      "kind": "files",
+      "name": "packages/core/src/runtime/ssh/ssh-command.ts",
+      "reason": "Retained test-only contract pending the consumer and replacement-coverage review in https://github.com/affromero/sidedoor/issues/63."
+    }
+  ]
+}

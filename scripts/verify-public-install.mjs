@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
@@ -96,12 +96,17 @@ export async function verifyRegistryInstall(artifactDirectory, registry = 'https
       '-e',
       "import { acquireFileLockSync } from 'thesidedoor-core/storage'; const release = acquireFileLockSync('./public-install.lock'); release();",
     ]);
-    await writeFile(join(directory, 'ai-text.mjs'), await readFile(join(root, 'examples/ai-text.mjs')));
+    await mkdir(join(directory, 'examples'));
+    await mkdir(join(directory, 'scripts'));
     await writeFile(
-      join(directory, 'verify-ai-example.mjs'),
+      join(directory, 'examples/ai-text.mjs'),
+      await readFile(join(root, 'examples/ai-text.mjs')),
+    );
+    await writeFile(
+      join(directory, 'scripts/verify-ai-example.mjs'),
       await readFile(join(root, 'scripts/verify-ai-example.mjs')),
     );
-    await run(process.execPath, ['verify-ai-example.mjs']);
+    await run(process.execPath, ['scripts/verify-ai-example.mjs']);
     process.stdout.write(
       'Exact registry archives, transitive native locking, ESM/CJS exports and the AI example passed.\n',
     );
