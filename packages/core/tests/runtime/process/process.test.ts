@@ -282,13 +282,30 @@ describe('agent process execution', () => {
   it('rejects SSH option injection and quotes every remote argument', async () => {
     expect(() => agentInvocation('agent', [], { host: '-oProxyCommand=bad' })).toThrow();
     expect(() => agentInvocation('agent', [], { host: '-V@example.com' })).toThrow();
-    const invocation = agentInvocation('agent', ["a'b", '$(printf dangerous)'], { host: 'user@host' });
+    const argumentsToPreserve = [
+      "a'b",
+      '$(printf dangerous)',
+      '`printf dangerous`',
+      '${HOME}',
+      '%I %t',
+      '',
+      'a b',
+      'line\nbreak',
+      'tab\there',
+      '; exit 9',
+      '日本語',
+    ];
+    const invocation = agentInvocation(
+      process.execPath,
+      ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...argumentsToPreserve],
+      { host: 'user@host' },
+    );
     const remote = invocation.args.at(-1)!;
     const parsed = await new ProcessRunner().execute({
       command: '/bin/sh',
-      args: ['-c', `set -- ${remote}; printf '%s\\n' "$@"`],
+      args: ['-c', remote],
       environment: agentEnvironment(process.env),
     });
-    expect(parsed.stdout.split('\n').filter(Boolean)).toEqual(['agent', "a'b", '$(printf dangerous)']);
+    expect(JSON.parse(parsed.stdout)).toEqual(argumentsToPreserve);
   });
 });

@@ -32,7 +32,7 @@ it('enforces endpoint verification and account despite conflicting SSH configura
   const config = join(directory, 'config');
   await writeFile(
     config,
-    'Host *\n User wrong-user\n ControlMaster auto\n ControlPath /tmp/old-master\n RemoteCommand false\n UserKnownHostsFile /tmp/unrelated-hosts\n StrictHostKeyChecking no\n ForwardAgent yes\n PermitLocalCommand yes\n',
+    'Host *\n User wrong-user\n ControlMaster auto\n ControlPath /tmp/old-master\n RemoteCommand false\n UserKnownHostsFile /tmp/unrelated-hosts\n KnownHostsCommand /bin/false\n StrictHostKeyChecking no\n ForwardAgent yes\n PermitLocalCommand yes\n',
   );
   const hostKey = key();
   let pinPath = '';
@@ -71,6 +71,7 @@ it('enforces endpoint verification and account despite conflicting SSH configura
         globalknownhostsfile: '/dev/null',
       });
       expect(settings.controlpath).toBeUndefined();
+      expect(settings.knownhostscommand).toBeUndefined();
       expect(settings.remotecommand).toBeUndefined();
       expect(settings.userknownhostsfile).toBe(pinPath);
       expect(settings.hostkeyalias).toBe(connection.pinnedIdentity!.alias);
