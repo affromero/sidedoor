@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-27
+
+### Added
+
+- Applications can delegate bounded background work with durable revocation,
+  request admission, replay protection, and explicit uncertain outcomes.
+  ([#65](https://github.com/affromero/sidedoor/pull/65), closes [#60](https://github.com/affromero/sidedoor/issues/60))
+- An optional Linux Docker runner contains executable agents and keeps provider
+  credentials in a parent-owned broker. Existing local and SSH defaults remain.
+  ([#65](https://github.com/affromero/sidedoor/pull/65), closes [#61](https://github.com/affromero/sidedoor/issues/61))
+- Muse Spark Standard uses the existing provider configuration and compatible
+  transport. Contributor training consent is never inferred.
+  ([#65](https://github.com/affromero/sidedoor/pull/65), closes [#62](https://github.com/affromero/sidedoor/issues/62))
+
+### Changed
+
+- Remove unused exports and verify dead code and installed examples in CI.
+  ([#64](https://github.com/affromero/sidedoor/pull/64))
+
 ## [0.3.4] - 2026-09-24
 
 ### Fixed
