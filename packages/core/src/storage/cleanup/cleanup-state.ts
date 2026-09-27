@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validateStorageKey } from '../registry/references';
 
 export const cleanupIdentity = z.string().min(1).max(200);
-export const cleanupDigest = z.string().regex(/^[a-f0-9]{64}$/);
+const cleanupDigest = z.string().regex(/^[a-f0-9]{64}$/);
 const counter = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const cleanupTargetInput = z
   .object({

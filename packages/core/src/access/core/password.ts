@@ -1,10 +1,10 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { ACCESS_ERROR_BRAND } from './error-brand';
 
-export class PasswordBusyError extends Error {
+class PasswordBusyError extends Error {
   readonly [ACCESS_ERROR_BRAND] = 'password_busy';
 }
-export class PasswordPolicyError extends Error {
+class PasswordPolicyError extends Error {
   readonly [ACCESS_ERROR_BRAND] = 'password_policy';
 }
 let activeDerivations = 0;

@@ -37,6 +37,8 @@ jobs:
         run: npm run test:package-install
       - if: matrix.node-version == 22
         run: npm run test:release
+      - if: matrix.node-version == 22
+        run: npm run test:example
       - run: npm pack --dry-run
       # Fail only on advisories in shipped (production) dependencies. The dev
       # toolchain's transitive advisories never reach consumers.

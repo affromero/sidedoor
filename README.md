@@ -285,3 +285,13 @@ Sidedoor is the shared backend boundary for [Flight Finder](https://github.com/a
 Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/affromero/sidedoor/security/advisories/new) or follow the [security policy](https://github.com/affromero/sidedoor/security/policy). Do not open a public issue for a suspected vulnerability.
 
 Sidedoor is available under the [MIT License](https://github.com/affromero/sidedoor/blob/main/LICENSE).
+
+## Dead-code checks
+
+The `Dead code` workflow runs on pull requests, main-branch pushes, and weekly.
+It uses the pinned [shared maintenance action](https://github.com/affromero/repo-maintenance)
+to reject new findings, stale reviewed exceptions, and scanner failures. Reports
+are attached to each workflow run. Dependabot updates the shared action and Knip.
+
+Keep runtime entry points in `knip.json`. Any retained finding in
+`.maintenance-exceptions.json` needs an exact identity and a review reason.

@@ -39,7 +39,7 @@ const entryResolution = z.discriminatedUnion('kind', [
     })
     .strict(),
 ]);
-export const manifestResolution = z
+const manifestResolution = z
   .object({
     resolver: cleanupIdentity,
     entries: z.array(entryResolution).min(1).max(100),
