@@ -74,7 +74,8 @@
     "test:watch": "vitest",
     "test:package-install": "node scripts/verify-package-install.mjs",
     "test:release": "node --test scripts/publish-packages.test.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run test:release && npm run build",
+    "test:example": "node scripts/verify-ai-example.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run test:release && npm run build && npm run test:example",
     "prepare": "husky"
   },
   "dependencies": {
@@ -105,10 +106,12 @@
     "globals": "^17.6.0",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
+    "knip": "6.38.0",
     "lint-staged": "^17.0.7",
     "prettier": "^3.4.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "thesidedoor-core": "0.3.4",
     "tsup": "^8.3.5",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.0.0",

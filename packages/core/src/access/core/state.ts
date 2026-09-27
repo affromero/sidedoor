@@ -10,7 +10,7 @@ export const principalSchema = z.object({
   pendingRole: z.literal('owner').optional(),
   createdAt: z.number(),
 });
-export const sessionSchema = z.object({
+const sessionSchema = z.object({
   id: z.string(),
   selectedProfileId: z.string().min(1).optional(),
   selectedProfileEpoch: z.number().int().nonnegative().optional(),
@@ -36,7 +36,7 @@ const passkeyFields = {
   createdAt: z.number(),
   backedUp: z.boolean(),
 };
-export const passkeySchema = z.union([
+const passkeySchema = z.union([
   z.object({ ...passkeyFields, scope: z.literal('principal').optional(), principalId: z.string() }),
   z.object({
     ...passkeyFields,
@@ -45,7 +45,7 @@ export const passkeySchema = z.union([
     householdEpoch: z.number().int().nonnegative(),
   }),
 ]);
-export const challengeSchema = z.object({
+const challengeSchema = z.object({
   id: z.string(),
   challenge: z.string(),
   kind: z.enum([
@@ -65,7 +65,7 @@ export const challengeSchema = z.object({
   origin: z.string(),
   expiresAt: z.number(),
 });
-export const tokenSchema = z
+const tokenSchema = z
   .object({
     id: z.string(),
     kind: z.enum(['claim', 'recover', 'invite', 'pair']),

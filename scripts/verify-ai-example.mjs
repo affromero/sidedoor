@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createServer } from 'node:http';
-import { generateText } from './ai-text.mjs';
+import { generateText } from '../examples/ai-text.mjs';
 
 const requests = [];
 const server = createServer(async (request, response) => {

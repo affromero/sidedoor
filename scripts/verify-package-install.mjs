@@ -182,12 +182,17 @@ try {
       });
     }
   }
-  await writeFile(join(directory, 'ai-text.mjs'), await readFile(join(root, 'examples/ai-text.mjs')));
+  await mkdir(join(directory, 'examples'));
+  await mkdir(join(directory, 'scripts'));
   await writeFile(
-    join(directory, 'verify-ai-example.mjs'),
+    join(directory, 'examples/ai-text.mjs'),
+    await readFile(join(root, 'examples/ai-text.mjs')),
+  );
+  await writeFile(
+    join(directory, 'scripts/verify-ai-example.mjs'),
     await readFile(join(root, 'scripts/verify-ai-example.mjs')),
   );
-  await run(process.execPath, ['verify-ai-example.mjs']);
+  await run(process.execPath, ['scripts/verify-ai-example.mjs']);
   process.stdout.write(
     'Installed AI example passed streaming, credential rejection and caller cancellation.\n',
   );
