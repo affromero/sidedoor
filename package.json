@@ -1,6 +1,6 @@
 {
   "name": "thesidedoor",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "React access and private connectivity components for self-hosted AI applications. Server infrastructure is available in thesidedoor-core.",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",
@@ -111,7 +111,7 @@
     "prettier": "^3.4.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "thesidedoor-core": "0.3.4",
+    "thesidedoor-core": "0.4.0",
     "tsup": "^8.3.5",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.0.0",
