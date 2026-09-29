@@ -59,7 +59,7 @@ describe('serializable transaction retries', () => {
     expect(current).toBe(8);
   });
   it('preserves the final database failure after exhausting the retry budget', async () => {
-    const failures = Array.from({ length: 5 }, (_, index) =>
+    const failures = Array.from({ length: 10 }, (_, index) =>
       Object.assign(new Error(`Conflict ${index}`), { code: '40001' }),
     );
     let attempt = 0;
@@ -67,7 +67,7 @@ describe('serializable transaction retries', () => {
       retrySerializableTransaction(async () => {
         throw failures[attempt++];
       }),
-    ).rejects.toBe(failures[4]);
+    ).rejects.toBe(failures[9]);
   });
   it('does not retry unrelated failures or infer retryability from messages', async () => {
     const error = Object.assign(new Error('40001 serialization failure'), {
