@@ -7,13 +7,63 @@ import { StorageInstanceControl } from '../../../src/storage/sql/instance';
 import { StorageReferenceRegistry } from '../../../src/storage/registry/reference-registry';
 import { StorageWriteJournal } from '../../../src/storage/execution/write-journal';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
-import type { SqlExecutor } from '../../../src/storage/sql/sql';
+import { retrySerializableTransaction, type SqlExecutor } from '../../../src/storage/sql/sql';
 import { StorageReadCleanupError } from '../../../src/storage/local/owned-copy';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
 });
+
+it.each(['recovered', 'exhausted', 'cancelled'] as const)(
+  'settles %s publication conflicts without repeating accepted external writes',
+  async (outcome) => {
+    const item = await fixture();
+    const options = item.options(['segment']);
+    let conflicts = outcome === 'exhausted' ? 10 : 6;
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    const cancelled = new Error('Publication cancelled');
+    const conflict = Object.assign(new Error('Concurrent publication commit'), { code: '40001' });
+    const writes: string[] = [];
+    const artifact = options.artifacts[0]!;
+    const captureWriter = artifact.captureWriter;
+    artifact.captureWriter = async () => {
+      const writer = await captureWriter();
+      return {
+        ...writer,
+        write: async (...args) => {
+          writes.push(args[0]);
+          return writer.write(...args);
+        },
+      };
+    };
+    options.transaction = (operation) =>
+      retrySerializableTransaction(() =>
+        item.transaction(async (tx) => {
+          const result = await operation(tx);
+          if (Object.keys(item.published()).length && conflicts-- > 0) {
+            if (outcome === 'cancelled') controller.abort(cancelled);
+            throw conflict;
+          }
+          return result;
+        }),
+      );
+    if (outcome === 'recovered') {
+      const result = await writeReferenceSet(options);
+      expect(item.published()).toEqual(result);
+    } else {
+      await expect(writeReferenceSet(options)).rejects.toBe(outcome === 'cancelled' ? cancelled : conflict);
+      expect(item.published()).toEqual({});
+    }
+    expect(writes).toHaveLength(1);
+    expect(item.objects.size).toBe(1);
+    const intents = (await new StorageWriteJournal(item.executor, 'sqlite', 'app').list('episode:one'))
+      .intents;
+    if (outcome === 'recovered') expect(intents).toEqual([]);
+    else expect(intents).toEqual([expect.objectContaining({ status: 'settled', outcome: 'unreferenced' })]);
+  },
+);
 
 it('publishes verified uploads with their captured attribution after a lost commit response', async () => {
   const item = await fixture();

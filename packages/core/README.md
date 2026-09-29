@@ -51,6 +51,12 @@ For a new provider, implement `ProviderAdapter` and register it with `ProviderRe
 
 See the [architecture guide](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md) before integrating persistence, credentials or access. The caller owns authorization and the Serializable transaction that applies related state changes. Shared persistence methods do not grant authority by themselves.
 
+`retrySerializableTransaction` retries recognized serialization conflicts and deadlocks
+with ten fresh transactions and exponential equal jitter. Total backoff is bounded
+at 2,130 ms, excluding transaction execution. Cancellation interrupts the wait;
+exhaustion preserves the final database error. Keep external writes outside the
+callback so retrying publication cannot upload or send again.
+
 `runJobExecution()` from `/runtime/outbox` owns durable execution admission,
 optional temporary workspaces, and cleanup receipts. Supply a fresh Serializable
 transaction adapter, the executor instance UUID, authority validation, and an

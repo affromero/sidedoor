@@ -26,6 +26,8 @@ export function isSerializationConflict(error: unknown): boolean {
  * Each attempt must open and finish a fresh Serializable database transaction.
  * Retryable work may contain database changes and repeatable computation only.
  * External requests, filesystem writes and notifications belong outside this callback.
+ * Ten attempts use exponential equal jitter (5..500ms per sleep), at most 2130ms
+ * total backoff. Jitter separates competing writers without an unbounded retry loop.
  */
 export async function retrySerializableTransaction<Result>(
   runTransaction: () => Promise<Result>,
@@ -36,8 +38,10 @@ export async function retrySerializableTransaction<Result>(
     try {
       return await runTransaction();
     } catch (error) {
-      if (!isSerializationConflict(error) || attempt === 4) throw error;
-      await delay(10 * (attempt + 1), undefined, { signal: options.signal });
+      if (!isSerializationConflict(error) || attempt === 9) throw error;
+      const ceiling = Math.min(10 * 2 ** attempt, 500);
+      const backoff = ceiling / 2 + Math.floor(Math.random() * (ceiling / 2 + 1));
+      await delay(backoff, undefined, { signal: options.signal });
     }
   }
 }
