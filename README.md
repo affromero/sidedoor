@@ -139,6 +139,53 @@ SIDEDOOR_AI_API_KEY=... \
 node examples/ai-text.mjs 'Explain why leaves change color.'
 ```
 
+### Use a local or custom compatible server
+
+`captureCompatibleModel` captures a model, an explicit OpenAI-compatible endpoint,
+and an optional key. The provider ID and model ID come from your application and
+server. Ollama, vLLM, LM Studio, and compatible proxies use the same API.
+
+```ts
+import { captureCompatibleModel, createSelectedApiRegistry } from 'thesidedoor-core/ai/providers';
+
+const credential = await loadAuthorizedCredential(selectedProvider);
+const selected = captureCompatibleModel({
+  provider: selectedProvider,
+  label: 'My model server',
+  endpoint: configuredEndpoint,
+  model: configuredModel,
+  apiKey: credential?.apiKey,
+  credentialBinding: credential?.binding,
+});
+const registry = createSelectedApiRegistry(selected);
+for await (const event of registry.generate({
+  provider: selected.descriptor.id,
+  model: selected.model,
+  messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+  signal: request.signal,
+})) {
+  if (event.type === 'text') response.write(event.text);
+}
+```
+
+Supply the binding with every saved key. A different endpoint path or protocol
+rejects that key before a request. New keys can be captured without a binding for
+validation, then stored through the application's authorized credential flow.
+`captureCompatibleApi` captures the same connection without requiring a model,
+so configuration checks and credential probes can use it. Pass `requiresKey: true`
+for probes of saved credentials; their descriptor transport stays `api`.
+
+The helpers validate HTTP(S) URLs, preserve custom API paths, and trim model IDs.
+They do not append `/v1`, read environment keys, or choose an alternative backend.
+Only the SDK endpoint is normalized. Keep the reviewed configuration and stored
+credential binding consistent in your application's transactions. A reachable
+compatible server can produce an inconclusive credential result; reachability
+alone does not verify a key.
+
+Sotto uses these helpers behind its own settings and learning rules. Flight Finder
+and Papernook can use the same API after upgrading Sidedoor and adding their own
+configuration UI. The helpers have no dependency on those applications.
+
 ## Use Claude Code or Codex subscriptions
 
 Sidedoor treats Claude Code and Codex as keyless CLI providers. They use the user's existing CLI subscription login instead of an API key. `thesidedoor-core/runtime/cli` decodes each command's structured output, returns answer text, rejects incomplete or conflicting terminal records, and reports the usage fields emitted by the CLI.

@@ -51,6 +51,15 @@ Consume the stream to completion, or cancel it through the supplied `AbortSignal
 
 The catalog distinguishes provider identity, credential authority and modality. A credential definition does not imply that every modality has a generation adapter. Validation also distinguishes authenticated proof, rejection, missing configuration and an inconclusive response. An outage is not evidence that a key was revoked.
 
+`captureCompatibleApi` and `captureCompatibleModel`, exported from
+`thesidedoor-core/ai/providers`, capture an explicit compatible endpoint with an
+optional authorized key. Saved keys carry their endpoint and protocol binding.
+The helpers reject a different binding, validate the URL through the canonical
+connection helper, and preserve the server's model ID. Applications own model
+routing prefixes, configuration persistence, reviewed-save conflicts, and settings
+UI. Credential owner, revision, sharing, and revocation checks remain in the
+application's existing authorization and transaction flow.
+
 ## Credential changes
 
 Per-owner credentials include the owner generation, instance identity, provider slot, endpoint binding and a unique revision. A replacement checks the expected head. Verification applies only to the revision and attempt it captured, so a delayed result cannot disable a replacement key.

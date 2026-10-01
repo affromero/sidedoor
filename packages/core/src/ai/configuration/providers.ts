@@ -11,6 +11,13 @@ import {
   type RegistryOptions,
 } from '../index';
 export { providerConnection } from './connection';
+export {
+  captureCompatibleApi,
+  captureCompatibleModel,
+  type CompatibleApiSelectionInput,
+  type CompatibleApiSelection,
+  type CompatibleModelSelection,
+} from './compatible';
 
 interface CapturedApiIdentity {
   descriptor: ProviderDescriptor;
