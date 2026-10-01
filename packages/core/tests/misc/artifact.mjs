@@ -46,6 +46,43 @@ try {
     '-e',
     `
     import assert from 'node:assert/strict';
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
+    for (const api of [await import('thesidedoor-core/ai/providers'), require('thesidedoor-core/ai/providers')]) {
+      const selected = api.captureCompatibleModel({
+        provider: 'consumer-server', label: 'Consumer server',
+        endpoint: 'https://consumer.example/team/inference/', model: ' served:model ',
+        apiKey: 'consumer-key',
+        credentialBinding: { protocol: 'compatible', endpoint: 'https://consumer.example/team/inference' },
+      });
+      const registry = api.createSelectedApiRegistry(selected, {
+        streaming: false, maxRetries: 0,
+        fetch: async (url, init) => {
+          assert.equal(String(url), 'https://consumer.example/team/inference/chat/completions');
+          assert.equal(new Headers(init.headers).get('authorization'), 'Bearer consumer-key');
+          assert.equal(JSON.parse(init.body).model, 'served:model');
+          return Response.json({ choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'Installed answer' } }] });
+        },
+      });
+      let answer = '';
+      for await (const event of registry.generate({
+        provider: selected.descriptor.id, model: selected.model,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Question' }] }],
+      })) if (event.type === 'text') answer += event.text;
+      assert.equal(answer, 'Installed answer');
+      assert.throws(() => api.captureCompatibleApi({
+        provider: 'consumer-server', label: 'Consumer server',
+        endpoint: 'https://other.example/v1', apiKey: 'consumer-key',
+        credentialBinding: { protocol: 'compatible', endpoint: selected.baseUrl },
+      }), /different endpoint/);
+    }
+  `,
+  ]);
+  run(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `
+    import assert from 'node:assert/strict';
     import { FileStateStore } from 'thesidedoor-core/storage';
     import { AccessService, initialAccessState, accessStateSchema } from 'thesidedoor-core/access';
     const store = new FileStateStore({ path: './access.json', initial: initialAccessState, parse: value => accessStateSchema.parse(value) });
