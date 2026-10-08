@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-10-08
+
+### Fixed
+
+- Cancelling an incomplete provider response releases its reader without
+  reporting the response as consumed. Pending reads cannot publish bytes or
+  completion after cancellation.
+  (Related to [#77](https://github.com/affromero/sidedoor/issues/77))
+
 ## [0.5.1] - 2026-10-08
 
 ### Added
@@ -164,6 +173,7 @@ the connect flow in [Flight Finder](https://github.com/affromero/flight-finder).
 
 [0.1.0]: https://github.com/affromero/sidedoor/releases/tag/v0.1.0
 [0.5.1]: https://github.com/affromero/sidedoor/releases/tag/v0.5.1
+[0.5.2]: https://github.com/affromero/sidedoor/releases/tag/v0.5.2
 [0.2.0]: https://github.com/affromero/sidedoor/releases/tag/v0.2.0
 [0.3.0]: https://github.com/affromero/sidedoor/releases/tag/v0.3.0
 [0.3.1]: https://github.com/affromero/sidedoor/releases/tag/v0.3.1

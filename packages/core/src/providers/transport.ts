@@ -54,6 +54,7 @@ function observeResponseConsumption(
   }
   const reader = response.body.getReader();
   let released = false;
+  let cancelled = false;
   const release = () => {
     if (released) return;
     released = true;
@@ -63,6 +64,7 @@ function observeResponseConsumption(
     async pull(controller) {
       try {
         const chunk = await reader.read();
+        if (cancelled) return;
         if (chunk.done) {
           onConsumed(consumption);
           release();
@@ -76,6 +78,7 @@ function observeResponseConsumption(
       }
     },
     async cancel(reason) {
+      cancelled = true;
       try {
         await abortable(reader.cancel(reason), AbortSignal.timeout(1_000));
       } finally {
