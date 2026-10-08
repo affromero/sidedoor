@@ -6,6 +6,7 @@ export default defineConfig({
     'runtime/isolated': 'src/runtime/isolated.ts',
     'runtime/credential-broker': 'src/runtime/credential-broker.ts',
     'providers/transport': 'src/providers/transport.ts',
+    'providers/availability': 'src/providers/availability.ts',
     'configuration/credential-client': 'src/configuration/credential-client.ts',
     'configuration/credential-sharing': 'src/configuration/credential-sharing.ts',
     'configuration/owned-credentials': 'src/configuration/owned-credentials.ts',

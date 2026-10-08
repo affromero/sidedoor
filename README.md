@@ -130,6 +130,13 @@ for await (const event of registry.generate({
 
 The caller resolves credentials after authorization and keeps them on the server. The selected backend returns its own error if it fails. Applications make any alternative provider choice explicitly.
 
+`thesidedoor-core/providers/availability` tracks confirmed credit exhaustion for
+an authenticated provider account through an application-owned atomic state
+backend. It shares the observation across modalities using the same credential,
+provider, instance, and canonical billing origin. An explicit check runs one
+operation and validates its result before clearing an exhausted state. Concurrent
+failures remain blocked. See the [account availability contract](docs/provider-availability.md).
+
 Run the complete [Node example](https://github.com/affromero/sidedoor/blob/main/examples/ai-text.mjs) against your provider:
 
 ```bash

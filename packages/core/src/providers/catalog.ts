@@ -18,6 +18,10 @@ interface Identity {
   credentialProvider?: string;
   fieldPresentation?: Record<string, { placeholder?: string; label?: string }>;
   compatibleApi?: CompatibleApiConnection;
+  creditExhaustion?: {
+    origin: string;
+    rules: readonly { status: number; path: readonly string[]; value: string; prefix?: boolean }[];
+  };
 }
 
 const identities: Record<string, Identity> = {
@@ -99,6 +103,13 @@ const identities: Record<string, Identity> = {
     modalities: ['text'],
   },
   openai: {
+    creditExhaustion: {
+      origin: 'https://api.openai.com',
+      rules: [
+        { status: 429, path: ['error', 'code'], value: 'insufficient_quota' },
+        { status: 429, path: ['error', 'code'], value: 'credit_balance_exhausted' },
+      ],
+    },
     label: 'OpenAI',
     helpUrl: 'https://platform.openai.com/api-keys',
     fields: [
@@ -308,6 +319,13 @@ const identities: Record<string, Identity> = {
     modalities: ['text'],
   },
   elevenlabs: {
+    creditExhaustion: {
+      origin: 'https://api.elevenlabs.io',
+      rules: [
+        { status: 401, path: ['detail', 'status'], value: 'quota_exceeded' },
+        { status: 402, path: ['detail', 'code'], value: 'insufficient_credits' },
+      ],
+    },
     label: 'ElevenLabs',
     helpUrl: 'https://elevenlabs.io/app/settings/api-keys',
     fields: [
@@ -323,6 +341,10 @@ const identities: Record<string, Identity> = {
     modalities: ['speech', 'transcription'],
   },
   cartesia: {
+    creditExhaustion: {
+      origin: 'https://api.cartesia.ai',
+      rules: [{ status: 402, path: [], value: 'Model credits limit reached:', prefix: true }],
+    },
     configurationFields: [
       { id: 'usagePlan', label: 'Usage Plan', kind: 'string', required: false, secret: false },
     ],
@@ -489,6 +511,25 @@ function identity(provider: string): Identity {
 export function providerIdentity(provider: string) {
   const entry = identity(provider);
   return { id: provider, label: entry.label, modalities: [...entry.modalities] };
+}
+
+/** Exact known billing responses only. Authentication and rate limits remain separate. */
+export function providerCreditsExhausted(
+  provider: string,
+  origin: string,
+  response: { status: number; body: unknown },
+): boolean {
+  const policy = identity(provider).creditExhaustion;
+  if (!policy || policy.origin !== origin) return false;
+  return policy.rules.some((rule) => {
+    if (response.status !== rule.status) return false;
+    let value: unknown = response.body;
+    for (const key of rule.path) {
+      if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return false;
+      value = (value as Record<string, unknown>)[key];
+    }
+    return typeof value === 'string' && (rule.prefix ? value.startsWith(rule.value) : value === rule.value);
+  });
 }
 
 export function providerCompatibleConnection(provider: string): CompatibleApiConnection | null {
