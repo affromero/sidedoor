@@ -143,6 +143,73 @@ describe('provider execution transport', () => {
     expect(response.body!.locked).toBe(false);
   });
 
+  it.each(['pending', 'queued'] as const)(
+    'keeps an incomplete payment response unsettled when its %s read is cancelled',
+    async (mode) => {
+      const consumption: number[] = [];
+      const dispatched: string[] = [];
+      const reason = new Error('Stopped reading an incomplete response');
+      let beginRead: () => void = () => {};
+      const reading = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      let finishCleanup: () => void = () => {};
+      const cleanup = new Promise<void>((resolve) => {
+        finishCleanup = resolve;
+      });
+      let sourceController: ReadableStreamDefaultController<Uint8Array> | undefined;
+      let cancellation: unknown;
+      const source = new ReadableStream<Uint8Array>(
+        {
+          start(controller) {
+            sourceController = controller;
+            controller.enqueue(new TextEncoder().encode('partial payment error'));
+          },
+          pull() {
+            beginRead();
+          },
+          cancel(value) {
+            cancellation = value;
+            return cleanup;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const transport = createProviderTransport({
+        rules: [{ method: 'POST', url: destination }],
+        admit: async () => {},
+        implementation: async (input) => {
+          dispatched.push(new Request(input).url);
+          return new Response(source, { status: 402 });
+        },
+      });
+      const response = await transport.authenticatedFetch(
+        destination,
+        { method: 'POST' },
+        { onDispatch: () => {}, onConsumed: ({ status }) => consumption.push(status) },
+      );
+      const reader = response.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe('partial payment error');
+      const pending = reader.read();
+      await reading;
+      if (mode === 'queued') sourceController!.enqueue(new TextEncoder().encode('partial error'));
+      let cancelled = false;
+      const cancel = reader.cancel(reason).then(() => {
+        cancelled = true;
+      });
+      expect(await pending).toEqual({ done: true, value: undefined });
+      expect(cancelled).toBe(false);
+      finishCleanup();
+      await cancel;
+      reader.releaseLock();
+      expect(cancellation).toBe(reason);
+      expect(dispatched).toEqual([destination]);
+      expect(consumption).toEqual([]);
+      expect(source.locked).toBe(false);
+      expect(response.body!.locked).toBe(false);
+    },
+  );
+
   it('releases the owned reader when response consumption fails', async () => {
     let consumed = false;
     const source = new ReadableStream<Uint8Array>({

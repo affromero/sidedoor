@@ -74,6 +74,45 @@ try {
     import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';
     const require = createRequire(import.meta.url);
+    for (const api of [await import('thesidedoor-core/providers/transport'), require('thesidedoor-core/providers/transport')]) {
+      let awaitingRead;
+      const reading = new Promise(resolve => { awaitingRead = resolve; });
+      let canceled = false;
+      const source = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('partial')); },
+        pull() { awaitingRead(); },
+        cancel() { canceled = true; },
+      }, { highWaterMark: 0 });
+      const consumed = [];
+      const url = 'https://api.cartesia.ai/tts/bytes';
+      const transport = api.createProviderTransport({
+        rules: [{ method: 'POST', url }], admit: async () => {},
+        implementation: async () => new Response(source, { status: 402 }),
+      });
+      const response = await transport.authenticatedFetch(url, { method: 'POST' }, {
+        onDispatch() {}, onConsumed: value => consumed.push(value.status),
+      });
+      const reader = response.body.getReader();
+      assert.equal(new TextDecoder().decode((await reader.read()).value), 'partial');
+      const pending = reader.read();
+      await reading;
+      await reader.cancel();
+      assert.equal((await pending).done, true);
+      assert.equal(canceled, true);
+      assert.deepEqual(consumed, []);
+      assert.equal(source.locked, false);
+      reader.releaseLock();
+    }
+  `,
+  ]);
+  process.stdout.write('Installed ESM/CJS transport leaves canceled partial responses unsettled.\n');
+  run(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `
+    import assert from 'node:assert/strict';
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
     for (const api of [await import('thesidedoor-core/ai/providers'), require('thesidedoor-core/ai/providers')]) {
       const selected = api.captureCompatibleModel({
         provider: 'consumer-server', label: 'Consumer server',
