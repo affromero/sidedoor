@@ -1,6 +1,6 @@
 {
   "name": "thesidedoor-core",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Self-hosted AI, access, storage, jobs, notifications, metrics and operations infrastructure",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",
@@ -60,6 +60,11 @@
       "types": "./dist/providers/transport.d.ts",
       "import": "./dist/providers/transport.js",
       "require": "./dist/providers/transport.cjs"
+    },
+    "./providers/availability": {
+      "types": "./dist/providers/availability.d.ts",
+      "import": "./dist/providers/availability.js",
+      "require": "./dist/providers/availability.cjs"
     },
     "./configuration/credential-client": {
       "types": "./dist/configuration/credential-client.d.ts",
@@ -262,7 +267,7 @@
     "zod": "4.6.5"
   },
   "optionalDependencies": {
-    "thesidedoor-flock": "0.5.0"
+    "thesidedoor-flock": "0.5.1"
   },
   "devDependencies": {
     "@types/node": "22.19.11"

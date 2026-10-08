@@ -46,6 +46,32 @@ try {
     '-e',
     `
     import assert from 'node:assert/strict';
+    import { DatabaseSync } from 'node:sqlite';
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
+    for (const api of [await import('thesidedoor-core/providers/availability'), require('thesidedoor-core/providers/availability')]) {
+      const { sqlStateBackend } = await import('thesidedoor-core/storage/sql');
+      const db = new DatabaseSync(':memory:');
+      try {
+        db.exec('CREATE TABLE "SidedoorState" ("id" TEXT PRIMARY KEY, "revision" TEXT NOT NULL, "state" TEXT NOT NULL)');
+        const database = { query: async (sql, values) => db.prepare(sql).all(...values) };
+        const registry = new api.ProviderAvailability({ namespace: 'consumer', instanceId: 'installed', backend: id => sqlStateBackend(database, 'sqlite', id) });
+        const account = registry.captureAccount({ provider: 'openai', origin: 'https://api.openai.com', credential: 'installed-key' });
+        await registry.observeFailure(account, { status: 429, body: { error: { code: 'insufficient_quota' } } });
+        await assert.rejects(registry.assertAvailable(account), { code: 'PROVIDER_CREDITS_EXHAUSTED' });
+        const result = await registry.recheck(account, async () => 'validated result', async value => assert.equal(value, 'validated result'));
+        assert.equal(result, 'validated result');
+        assert.equal((await registry.status(account)).state, 'verified_available');
+      } finally { db.close(); }
+    }
+  `,
+  ]);
+  process.stdout.write('Installed ESM/CJS provider availability persists and verifies account state.\n');
+  run(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `
+    import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';
     const require = createRequire(import.meta.url);
     for (const api of [await import('thesidedoor-core/ai/providers'), require('thesidedoor-core/ai/providers')]) {
