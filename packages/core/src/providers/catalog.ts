@@ -340,6 +340,21 @@ const identities: Record<string, Identity> = {
     ],
     modalities: ['speech', 'transcription'],
   },
+  fish: {
+    label: 'Fish Audio',
+    helpUrl: 'https://fish.audio/app/api-keys',
+    fields: [
+      {
+        id: 'apiKey',
+        label: 'API Key',
+        placeholder: 'sk-fish-...',
+        kind: 'string',
+        required: true,
+        secret: true,
+      },
+    ],
+    modalities: ['speech'],
+  },
   cartesia: {
     creditExhaustion: {
       origin: 'https://api.cartesia.ai',

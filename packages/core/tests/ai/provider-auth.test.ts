@@ -7,6 +7,14 @@ import {
   providerCompatibleConnection,
 } from '../../src/providers/catalog';
 
+it('keeps Fish Audio credentials specific to speech', () => {
+  const metadata = providerCredentials('fish', 'speech');
+  expect(metadata.credentialProvider).toBe('fish');
+  expect(metadata.fields).toEqual([expect.objectContaining({ id: 'apiKey', required: true, secret: true })]);
+  expect(() => providerCredentials('fish', 'transcription')).toThrow('does not support');
+  expect(() => providerCredentials('fish', 'text')).toThrow('does not support');
+});
+
 it('retains provider-specific compatible endpoints without falling back to another service', () => {
   expect(providerCompatibleConnection('groq')).toEqual({
     baseURL: 'https://api.groq.com/openai/v1',
