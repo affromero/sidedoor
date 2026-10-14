@@ -117,6 +117,190 @@ async function fixture(retention = false) {
 }
 
 describe('durable storage cleanup', () => {
+  it('recovers a waiting job with exact settled intent inventories and preserves its tombstone', async () => {
+    const item = await fixture();
+    const target = { ...item.target, backendId: item.historical.id, key: 'old/audio.wav' };
+    const intent = prepareStorageWrite({ namespace: 'app', subjectId: 'learner', generation: 2, target });
+    await item.transaction(() => item.writes.begin(intent, 2));
+    await item.transaction(() => item.writes.finish(intent, { kind: 'unreferenced' }));
+    await item.transaction(() => item.journal.createJob(item.prepared));
+    await item.transaction(() => item.journal.registerCollectors(item.prepared.id, 0, item.collectors));
+    const waiting = await item.transaction(() => item.journal.transition(item.prepared.id, 0));
+    const tombstone = await item.writes.tombstone('learner');
+    await expect(
+      item.transaction(() => item.journal.recordDrainedIntents(waiting.id, waiting.epoch, null)),
+    ).rejects.toThrow('no verification inventory');
+    const recovered = await item.transaction(() =>
+      item.journal.registerSettledIntentInventories(waiting.id, waiting.epoch),
+    );
+    expect(recovered).toMatchObject({
+      cursor: null,
+      job: { phase: 'waiting', epoch: waiting.epoch, pending: 0 },
+    });
+    expect(await item.writes.tombstone('learner')).toEqual(tombstone);
+    const collectors = (await item.journal.listCollectors(waiting.id)).collectors;
+    const exact = collectors.find((collector) => collector.scope === target.key)!;
+    expect(exact).toMatchObject({ match: 'key', kind: 'inventory', backendIds: [item.historical.id] });
+    const replay = await item.transaction(() =>
+      item.journal.registerSettledIntentInventories(waiting.id, waiting.epoch),
+    );
+    expect(replay.job).toEqual(recovered.job);
+    let job = await item.transaction(() =>
+      item.journal.recordDrainedIntents(waiting.id, waiting.epoch, null),
+    );
+    await expect(item.page(job, exact.id, [{ ...target, key: target.key + '.backup' }])).rejects.toThrow(
+      'outside its inventory prefix',
+    );
+    for (const collector of collectors)
+      job = await item.page(job, collector.id, collector.id === exact.id ? [target] : []);
+    job = await item.transaction(() => item.journal.transition(job.id, job.epoch));
+    job = await item.transaction(() => item.journal.transition(job.id, job.epoch));
+    const execution = new CleanupExecutionJournal(item.executor, 'sqlite', 'app');
+    const binding = {
+      executionId: randomUUID(),
+      executorId: randomUUID(),
+      jobId: job.id,
+      backendBinding: target.binding,
+    };
+    await item.transaction(() => execution.begin(binding));
+    const ticket = (await item.journal.pendingTargets(job.id, job.epoch)).tickets[0]!;
+    expect(ticket.target.key).toBe(target.key);
+    await item.transaction(() => execution.acknowledgeTarget(binding, ticket));
+    job = await item.transaction(() => item.journal.beginVerification(job.id, job.epoch));
+    for (const collector of collectors.filter((collector) => collector.kind === 'inventory'))
+      job = await item.page(job, collector.id, []);
+    await item.transaction(() => execution.transition(job.id, job.epoch, [binding]));
+    expect(await item.journal.get(job.id)).toMatchObject({
+      phase: 'complete',
+      pending: 0,
+      deleted: 1,
+      verification: 1,
+    });
+    expect((await item.writes.list('learner')).intents[0]?.status).toBe('settled');
+  });
+
+  it('pages settled intent inventories without admitting another subject or counting replayed keys twice', async () => {
+    const item = await fixture();
+    await item.transaction(async () => {
+      for (let index = 0; index < 101; index++) {
+        const intent = prepareStorageWrite({
+          namespace: 'app',
+          subjectId: 'learner',
+          generation: 2,
+          target: { ...item.target, key: `old/${index}.wav` },
+        });
+        await item.writes.begin(intent, 2);
+        await item.writes.finish(intent, { kind: 'unreferenced' });
+      }
+      const foreign = prepareStorageWrite({
+        namespace: 'app',
+        subjectId: 'other',
+        generation: 2,
+        target: { ...item.target, key: 'other/keep.wav' },
+      });
+      await item.writes.begin(foreign, 2);
+      await item.writes.finish(foreign, { kind: 'unreferenced' });
+      await item.journal.createJob(item.prepared);
+    });
+    const first = await item.transaction(() =>
+      item.journal.registerSettledIntentInventories(item.prepared.id, 0),
+    );
+    expect(first.cursor).not.toBeNull();
+    expect(first.job.inventoryCount).toBe(100);
+    const second = await item.transaction(() =>
+      item.journal.registerSettledIntentInventories(item.prepared.id, 0, first.cursor),
+    );
+    expect(second.cursor).toBeNull();
+    expect(second.job).toMatchObject({ inventoryCount: 101, remainingCollectors: 101 });
+    const replay = await item.transaction(() =>
+      item.journal.registerSettledIntentInventories(item.prepared.id, 0, first.cursor),
+    );
+    expect(replay.job).toEqual(second.job);
+    let after: string | null = null;
+    const keys: string[] = [];
+    do {
+      const page = await item.journal.listCollectors(item.prepared.id, after);
+      keys.push(...page.collectors.map((collector) => collector.scope));
+      after = page.cursor;
+    } while (after !== null);
+    expect(keys).toHaveLength(101);
+    expect(keys).not.toContain('other/keep.wav');
+  });
+
+  it.each(['active', 'uncertain', 'generation', 'backend'])(
+    'rolls back inventory recovery when a write has invalid %s evidence',
+    async (problem) => {
+      const item = await fixture();
+      const valid = prepareStorageWrite({
+        namespace: 'app',
+        subjectId: 'learner',
+        generation: 2,
+        target: { ...item.target, key: 'old/valid.wav' },
+      });
+      valid.operationId = '00000000-0000-4000-8000-000000000001';
+      const invalid = prepareStorageWrite({
+        namespace: 'app',
+        subjectId: 'learner',
+        generation: problem === 'generation' ? 1 : 2,
+        target: { ...item.target, key: 'old/invalid.wav' },
+      });
+      invalid.operationId = '00000000-0000-4000-8000-000000000002';
+      await item.transaction(async () => {
+        await item.writes.begin(valid, 2);
+        await item.writes.finish(valid, { kind: 'unreferenced' });
+        await item.writes.begin(invalid, invalid.generation);
+        if (problem !== 'active')
+          await item.writes.finish(invalid, { kind: problem === 'uncertain' ? 'uncertain' : 'unreferenced' });
+        await item.journal.createJob(item.prepared);
+      });
+      if (problem === 'backend')
+        item.database
+          .prepare(
+            "UPDATE SidedoorState SET state = json_set(state, '$.target.binding', ?) WHERE json_extract(state, '$.operationId') = ?",
+          )
+          .run('0'.repeat(64), invalid.operationId);
+      await expect(
+        item.transaction(() => item.journal.registerSettledIntentInventories(item.prepared.id, 0)),
+      ).rejects.toThrow();
+      expect(await item.journal.get(item.prepared.id)).toEqual(item.prepared);
+      expect((await item.journal.listCollectors(item.prepared.id)).collectors).toEqual([]);
+    },
+  );
+
+  it('rejects stale epochs, changed tombstones, and recovery once discovery has started', async () => {
+    const item = await fixture();
+    await item.transaction(() => item.journal.createJob(item.prepared));
+    await expect(
+      item.transaction(() => item.journal.registerSettledIntentInventories(item.prepared.id, 1)),
+    ).rejects.toThrow('phase changed');
+    const original = item.database
+      .prepare("SELECT id, state FROM SidedoorState WHERE json_extract(state, '$.kind') = 'tombstone'")
+      .get()!;
+    item.database
+      .prepare('UPDATE SidedoorState SET state = ? WHERE id = ?')
+      .run(
+        JSON.stringify({ ...JSON.parse(original.state as string), jobId: randomUUID() }),
+        original.id as string,
+      );
+    await expect(
+      item.transaction(() => item.journal.registerSettledIntentInventories(item.prepared.id, 0)),
+    ).rejects.toThrow('permanent write tombstone');
+    item.database
+      .prepare('UPDATE SidedoorState SET state = ? WHERE id = ?')
+      .run(original.state as string, original.id as string);
+    await item.transaction(() => item.journal.registerCollectors(item.prepared.id, 0, item.collectors));
+    const waiting = await item.transaction(() => item.journal.transition(item.prepared.id, 0));
+    await expect(
+      item.transaction(() => item.journal.registerCollectors(waiting.id, waiting.epoch, [])),
+    ).rejects.toThrow('scopes are frozen');
+    const collecting = await item.transaction(() =>
+      item.journal.recordDrainedIntents(waiting.id, waiting.epoch, null),
+    );
+    await expect(
+      item.transaction(() => item.journal.registerSettledIntentInventories(collecting.id, collecting.epoch)),
+    ).rejects.toThrow('intent inventories are frozen');
+  });
+
   it('rejects stale executor deletion receipts and completion after ownership changes', async () => {
     const item = await fixture();
     const job = await item.deleting();

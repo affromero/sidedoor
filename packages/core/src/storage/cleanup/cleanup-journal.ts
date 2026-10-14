@@ -193,6 +193,41 @@ export class StorageCleanupJournal {
     const { job } = await this.read(id);
     return this.collectors().list(job, after);
   }
+  /**
+   * Recover omitted inventories before discovery starts. Only durable, settled writes
+   * for this tombstoned subject and generation can extend the otherwise frozen scopes.
+   * Finish every page before starting an executor so all backend locks can be retained.
+   */
+  async registerSettledIntentInventories(id: string, epoch: number, after: string | null = null) {
+    const { job, revision } = await this.read(id, epoch);
+    if (!['preparing', 'waiting'].includes(job.phase))
+      throw new Error('Storage cleanup intent inventories are frozen');
+    const tombstone = await this.writes().tombstone(job.subjectId);
+    if (!tombstone || tombstone.jobId !== job.id || tombstone.generation !== job.generation)
+      throw new Error('Storage cleanup requires its permanent write tombstone');
+    const page = await this.writes().list(job.subjectId, { after: after ?? undefined, limit: 100 });
+    if (page.intents.some((intent) => intent.status !== 'settled'))
+      throw new Error('Storage cleanup is waiting for write completion');
+    for (const intent of page.intents) {
+      if (intent.generation !== job.generation)
+        throw new Error('Storage cleanup write generation does not match');
+      await this.validateBackend(intent.target);
+      const { backendId, binding, key } = intent.target;
+      const added = await this.collectors().register(job, {
+        id: `write-intent:${cleanupHash(JSON.stringify([backendId, binding, key]))}`,
+        kind: 'inventory',
+        backendIds: [backendId],
+        scope: key,
+        match: 'key',
+      });
+      if (!added) continue;
+      job.collectorCount++;
+      job.inventoryCount++;
+      job.remainingCollectors++;
+    }
+    await this.save(job, revision);
+    return { job, cursor: page.cursor };
+  }
   /** Persist raw pre-cascade references. Unknown attribution remains unresolved and prevents cleanup. */
   async recordManifestPage(
     id: string,
