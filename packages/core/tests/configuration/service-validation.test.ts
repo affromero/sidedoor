@@ -188,6 +188,14 @@ it.each([
 
 const fixtures = [
   {
+    protocol: 'fish',
+    origin: 'https://api.fish.audio',
+    path: '/model?self=true&page_size=1',
+    header: 'authorization',
+    auth: 'Bearer owner-key',
+    body: { total: 0, items: [] },
+  },
+  {
     protocol: 'deepgram',
     origin: 'https://api.deepgram.com',
     path: '/v1/projects',
