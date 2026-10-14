@@ -36,6 +36,13 @@ const protocols = {
     prefix: '',
     proof: z.object({ user_id: nonempty, subscription: record }),
   },
+  fish: {
+    origin: 'https://api.fish.audio',
+    path: '/model?self=true&page_size=1',
+    header: 'authorization',
+    prefix: 'Bearer ',
+    proof: z.object({ total: integer, items: z.array(z.object({ _id: nonempty })) }),
+  },
   cartesia: {
     origin: 'https://api.cartesia.ai',
     path: '/voices?limit=1',
