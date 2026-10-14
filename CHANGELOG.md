@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-10-14
+
+### Added
+
+- Fish Audio speech credentials use an authenticated account voice listing for
+  verification without generating audio. Paid API credit errors leave free-model
+  access available.
+  ([#85](https://github.com/affromero/sidedoor/pull/85), closes [#84](https://github.com/affromero/sidedoor/issues/84))
+- Waiting cleanup jobs can recover exact inventories from settled writes for
+  the same tombstoned subject and generation. Recovery validates backend
+  bindings, preserves counters on replay, and completes pagination before
+  executor startup.
+  ([#85](https://github.com/affromero/sidedoor/pull/85))
+
+### Changed
+
+- Update compatible npm dependencies while retaining the Node 20 browser test
+  toolchain.
+  ([#80](https://github.com/affromero/sidedoor/pull/80))
+- Update pinned CodeQL and repository maintenance actions.
+  ([#81](https://github.com/affromero/sidedoor/pull/81))
+
 ## [0.5.2] - 2026-10-08
 
 ### Fixed
