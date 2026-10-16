@@ -136,6 +136,7 @@ backend. It shares the observation across modalities using the same credential,
 provider, instance, and canonical billing origin. An explicit check runs one
 operation and validates its result before clearing an exhausted state. Concurrent
 failures remain blocked. See the [account availability contract](docs/provider-availability.md).
+Pass Fish Audio's selected model so free access stays independent of paid API credits.
 
 Run the complete [Node example](https://github.com/affromero/sidedoor/blob/main/examples/ai-text.mjs) against your provider:
 

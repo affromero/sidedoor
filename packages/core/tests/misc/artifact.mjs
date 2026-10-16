@@ -62,6 +62,13 @@ try {
         const result = await registry.recheck(account, async () => 'validated result', async value => assert.equal(value, 'validated result'));
         assert.equal(result, 'validated result');
         assert.equal((await registry.status(account)).state, 'verified_available');
+        const fish = { provider: 'fish', origin: 'https://api.fish.audio', credential: 'installed-fish-key' };
+        const paid = registry.captureAccount({ ...fish, model: 'drama-3' });
+        assert.equal(await registry.observeFailure(paid, { status: 402, body: { message: 'Insufficient API credit. API credit is managed independently from platform credit.' } }), true);
+        const free = registry.captureAccount({ ...fish, model: 's2.1-pro-free' });
+        await registry.assertAvailable(free);
+        await registry.recheck(free, async () => 'free audio', async () => {});
+        await assert.rejects(registry.assertAvailable(registry.captureAccount({ ...fish, model: 's2-pro' })), { code: 'PROVIDER_CREDITS_EXHAUSTED' });
       } finally { db.close(); }
     }
   `,

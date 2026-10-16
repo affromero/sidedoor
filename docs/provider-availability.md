@@ -17,6 +17,7 @@ const account = availability.captureAccount({
   provider: selectedProvider,
   origin: canonicalBillingOrigin,
   credential: capturedApiKey,
+  model: selectedModel,
 });
 
 await availability.assertAvailable(account);
@@ -31,23 +32,30 @@ provider, instance, namespace, and normalized billing origin. Raw credentials an
 response bodies are never stored. TTS and STT using the same provider account
 share this state. An endpoint on a different origin has a different account.
 
+Pass the concrete selected model when capturing Fish Audio accounts. Paid Fish
+models share an API credit balance, while `s2.1-pro-free` has independent access.
+A paid failure never blocks the free model, and a successful free check never
+clears paid exhaustion. Omitting `model` uses the shared paid account identity.
+Model selection does not partition credit status for other providers.
+
 After the canonical transport finishes reading a failed response, pass its
 bounded parsed JSON body or exact plain-text body to
 `observeFailure(account, { status, body })`. It returns `true` only for these
 specific signals on the provider's canonical API origin:
 
-| Provider   | HTTP status | Response signal                                                    |
-| ---------- | ----------- | ------------------------------------------------------------------ |
-| OpenAI     | 429         | `error.code` is `insufficient_quota` or `credit_balance_exhausted` |
-| ElevenLabs | 401         | Legacy `detail.status` is `quota_exceeded`                         |
-| ElevenLabs | 402         | `detail.code` is `insufficient_credits`                            |
-| Cartesia   | 402         | Plain text starts with `Model credits limit reached:`              |
+| Provider   | HTTP status | Response signal                                                                                            |
+| ---------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| OpenAI     | 429         | `error.code` is `insufficient_quota` or `credit_balance_exhausted`                                         |
+| ElevenLabs | 401         | Legacy `detail.status` is `quota_exceeded`                                                                 |
+| ElevenLabs | 402         | `detail.code` is `insufficient_credits`                                                                    |
+| Cartesia   | 402         | Plain text starts with `Model credits limit reached:`                                                      |
+| Fish Audio | 402         | `message` starts with `Insufficient API credit. API credit is managed independently from platform credit.` |
 
 The OpenAI codes appear in its [current error documentation](https://developers.openai.com/api/docs/guides/error-codes)
 and [rate-limit example](https://developers.openai.com/cookbook/examples/how_to_handle_rate_limits).
 ElevenLabs documents its [legacy quota status](https://elevenlabs.io/docs/help-center/technical/api-error-code-400-or-401)
 and [current payment error](https://elevenlabs.io/docs/eleven-api/resources/errors).
-The Cartesia prefix matches an observed credit-exhaustion response. Unrecognized
+The Cartesia and Fish prefixes match observed credit-exhaustion responses. Unrecognized
 payment errors, authentication failures, rate limits, incomplete bodies, and
 unsupported provider signals remain ordinary failures. They do not clear an
 existing exhausted state or establish that an account is healthy.
