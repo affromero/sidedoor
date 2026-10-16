@@ -6,6 +6,14 @@ import { sqlStateBackend } from '../../src/storage/sql/sql';
 const databases: DatabaseSync[] = [];
 const exhausted = { status: 402, body: 'Model credits limit reached: Please upgrade your subscription.' };
 const selection = { provider: 'cartesia', origin: 'https://api.cartesia.ai', credential: 'test-secret-key' };
+const fishExhausted = {
+  status: 402,
+  body: {
+    status: 402,
+    message:
+      'Insufficient API credit. API credit is managed independently from platform credit. Please visit https://fish.audio/app/developers to view your API credit balance or add funds.',
+  },
+};
 function fixture() {
   const db = new DatabaseSync(':memory:');
   databases.push(db);
@@ -30,6 +38,38 @@ afterEach(() => {
 });
 
 describe('provider account availability', () => {
+  it('shares other providers balances regardless of their selected model', async () => {
+    const { availability } = fixture();
+    const first = availability.captureAccount({ ...selection, model: 'sonic-3.5' });
+    await availability.observeFailure(first, exhausted);
+    const second = availability.captureAccount({ ...selection, model: 'sonic-3' });
+    await expect(availability.assertAvailable(second)).rejects.toMatchObject({
+      code: 'PROVIDER_CREDITS_EXHAUSTED',
+    });
+  });
+  it('shares paid Fish credit failures while preserving free access across restarts', async () => {
+    const { availability, create } = fixture();
+    const fish = { provider: 'fish', origin: 'https://api.fish.audio', credential: 'fish-key' };
+    const paid = availability.captureAccount({ ...fish, model: 'drama-3' });
+    expect(await availability.observeFailure(paid, fishExhausted)).toBe(true);
+    for (const model of ['s2.1-pro', 's2-pro']) {
+      await expect(
+        availability.assertAvailable(availability.captureAccount({ ...fish, model })),
+      ).rejects.toMatchObject({ code: 'PROVIDER_CREDITS_EXHAUSTED', provider: 'fish' });
+    }
+    const restored = create();
+    const free = restored.captureAccount({ ...fish, model: 's2.1-pro-free' });
+    await expect(restored.assertAvailable(free)).resolves.toBeUndefined();
+    await restored.recheck(
+      free,
+      async () => 'free audio',
+      async () => {},
+    );
+    await expect(
+      restored.assertAvailable(restored.captureAccount({ ...fish, model: 'drama-3' })),
+    ).rejects.toMatchObject({ code: 'PROVIDER_CREDITS_EXHAUSTED' });
+  });
+
   it('persists a confirmed exhausted account across registries without storing its credential or response', async () => {
     const { availability, create, db } = fixture();
     const account = availability.captureAccount(selection);
@@ -125,6 +165,10 @@ describe('provider account availability', () => {
     ['elevenlabs', 'https://api.elevenlabs.io', 429, { detail: { status: 'quota_exceeded' } }],
     ['hume', 'https://api.hume.ai', 402, exhausted.body],
     ['cartesia', 'https://api.cartesia.ai', 500, null],
+    ['fish', 'https://api.fish.audio', 402, { message: 'Payment required' }],
+    ['fish', 'https://api.fish.audio', 401, fishExhausted.body],
+    ['fish', 'https://api.fish.audio', 429, fishExhausted.body],
+    ['fish', 'https://private.example', 402, fishExhausted.body],
   ])('keeps an unrecognized %s response unknown (%s/%s)', async (provider, origin, status, body) => {
     const { availability, db } = fixture();
     const account = availability.captureAccount({ provider, origin, credential: 'key' });

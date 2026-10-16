@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { OptimisticStateStore, type AtomicStateBackend } from '../storage/sql/optimistic';
-import { providerCreditsExhausted, providerIdentity } from './catalog';
+import { providerCreditScope, providerCreditsExhausted, providerIdentity } from './catalog';
 
 export class ProviderCreditsExhaustedError extends Error {
   readonly code = 'PROVIDER_CREDITS_EXHAUSTED';
@@ -61,7 +61,12 @@ export class ProviderAvailability {
       .digest('hex')}:`;
   }
 
-  captureAccount(selection: { provider: string; origin: string; credential: string }): ProviderAccount {
+  captureAccount(selection: {
+    provider: string;
+    origin: string;
+    credential: string;
+    model?: string;
+  }): ProviderAccount {
     providerIdentity(selection.provider);
     if (!selection.credential.trim()) throw new Error('Provider account requires a credential.');
     const url = new URL(selection.origin);
@@ -74,14 +79,13 @@ export class ProviderAvailability {
       url.pathname !== '/'
     )
       throw new Error('Provider account requires a canonical billing origin.');
+    const scope = providerCreditScope(selection.provider, selection.model);
+    const identity = [this.options.namespace, this.options.instanceId, selection.provider, url.origin];
+    if (scope) identity.push(scope);
     const account = Object.freeze({
       provider: selection.provider,
       origin: url.origin,
-      identity: createHmac('sha256', selection.credential)
-        .update(
-          JSON.stringify([this.options.namespace, this.options.instanceId, selection.provider, url.origin]),
-        )
-        .digest('hex'),
+      identity: createHmac('sha256', selection.credential).update(JSON.stringify(identity)).digest('hex'),
     });
     this.accounts.add(account);
     return account;

@@ -20,6 +20,7 @@ interface Identity {
   compatibleApi?: CompatibleApiConnection;
   creditExhaustion?: {
     origin: string;
+    separateModels?: readonly string[];
     rules: readonly { status: number; path: readonly string[]; value: string; prefix?: boolean }[];
   };
 }
@@ -341,6 +342,18 @@ const identities: Record<string, Identity> = {
     modalities: ['speech', 'transcription'],
   },
   fish: {
+    creditExhaustion: {
+      origin: 'https://api.fish.audio',
+      separateModels: ['s2.1-pro-free'],
+      rules: [
+        {
+          status: 402,
+          path: ['message'],
+          value: 'Insufficient API credit. API credit is managed independently from platform credit.',
+          prefix: true,
+        },
+      ],
+    },
     label: 'Fish Audio',
     helpUrl: 'https://fish.audio/app/api-keys',
     fields: [
@@ -526,6 +539,11 @@ function identity(provider: string): Identity {
 export function providerIdentity(provider: string) {
   const entry = identity(provider);
   return { id: provider, label: entry.label, modalities: [...entry.modalities] };
+}
+
+/** Models with independent credit access must not share an exhaustion latch. */
+export function providerCreditScope(provider: string, model?: string): string | undefined {
+  return model && identity(provider).creditExhaustion?.separateModels?.includes(model) ? model : undefined;
 }
 
 /** Exact known billing responses only. Authentication and rate limits remain separate. */
