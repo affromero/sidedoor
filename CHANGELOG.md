@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-10-16
+
+### Fixed
+
+- Recognize Fish Audio API credit exhaustion across paid models while keeping
+  `s2.1-pro-free` available on the same key. Consumers can pass the selected model
+  to `ProviderAvailability.captureAccount` to preserve independent credit access.
+  ([#89](https://github.com/affromero/sidedoor/pull/89), closes [#88](https://github.com/affromero/sidedoor/issues/88))
+- Recover omitted write-intent inventories during storage cleanup.
+  ([`1d5bc25`](https://github.com/affromero/sidedoor/commit/1d5bc25))
+
 ## [0.5.3] - 2026-10-14
 
 ### Added
