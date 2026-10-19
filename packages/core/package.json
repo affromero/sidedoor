@@ -1,6 +1,6 @@
 {
   "name": "thesidedoor-core",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Self-hosted AI, access, storage, jobs, notifications, metrics and operations infrastructure",
   "author": "Andres Romero <me@afromero.co> (https://afromero.co)",
   "homepage": "https://github.com/affromero/sidedoor#readme",
@@ -267,7 +267,7 @@
     "zod": "4.6.5"
   },
   "optionalDependencies": {
-    "thesidedoor-flock": "0.5.4"
+    "thesidedoor-flock": "0.5.5"
   },
   "devDependencies": {
     "@types/node": "26.6.4"
