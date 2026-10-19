@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-10-19
+
+### Fixed
+
+- Document suggestions and model presets include GPT-6.1 Sol, GPT-6 Astra,
+  GPT-6 Sol, GPT-6 Luna, Claude Fable 5.1, and Claude Opus, Sonnet, and Haiku
+  5.5. Existing extraction defaults and older selections remain available.
+  ([#92](https://github.com/affromero/sidedoor/pull/92), closes [#91](https://github.com/affromero/sidedoor/issues/91))
+
+### Changed
+
+- Update package dependencies while preserving the Node 20 browser tooling,
+  and update GitHub Actions pins.
+  ([#86](https://github.com/affromero/sidedoor/pull/86), [#87](https://github.com/affromero/sidedoor/pull/87))
+
 ## [0.5.4] - 2026-10-16
 
 ### Fixed
