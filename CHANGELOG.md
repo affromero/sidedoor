@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-10-20
+
+### Added
+
+- Send original PDFs through the shared Anthropic, OpenAI Chat Completions,
+  Responses and native Google transports. Document requests require vision
+  capability and retain the selected provider and original bytes.
+  ([#94](https://github.com/affromero/sidedoor/pull/94), closes [#93](https://github.com/affromero/sidedoor/issues/93))
+
 ## [0.5.5] - 2026-10-19
 
 ### Fixed
