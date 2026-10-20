@@ -29,6 +29,39 @@ async function collect(events: AsyncIterable<GenerationEvent>) {
 }
 
 describe('OpenAI Responses transport', () => {
+  it('sends original PDF bytes as an input file', async () => {
+    const bytes = Buffer.from('%PDF-1.7\noriginal pages');
+    const provider = createResponsesProvider({
+      descriptor,
+      fetch: async (_input, init) => {
+        expect(JSON.parse(String(init?.body)).input[0].content).toEqual([
+          {
+            type: 'input_file',
+            filename: 'lesson.pdf',
+            file_data: `data:application/pdf;base64,${bytes.toString('base64')}`,
+          },
+        ]);
+        return stream([
+          { type: 'response.completed', response: { id: 'done', status: 'completed', output: [] } },
+        ]);
+      },
+    });
+    const events = await collect(
+      provider.generate(
+        {
+          ...request,
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', name: 'lesson.pdf', mediaType: 'application/pdf', data: bytes }],
+            },
+          ],
+        },
+        context(),
+      ),
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'finish', reason: 'complete' });
+  });
   it('reports conflicting Responses endpoints without blaming a configured key', async () => {
     const provider = createResponsesProvider({ descriptor });
     expect(

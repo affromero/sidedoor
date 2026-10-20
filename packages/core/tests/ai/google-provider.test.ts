@@ -29,6 +29,30 @@ async function collect(events: AsyncIterable<GenerationEvent>) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Google transport', () => {
+  it('sends original PDF bytes as inline document data', async () => {
+    const bytes = Buffer.from('%PDF-1.7\noriginal pages');
+    vi.stubGlobal('fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body)).contents[0].parts).toEqual([
+        { inlineData: { mimeType: 'application/pdf', data: bytes.toString('base64') } },
+      ]);
+      return response([{ candidates: [{ content: { parts: [{ text: 'Seen' }] }, finishReason: 'STOP' }] }]);
+    });
+    const events = await collect(
+      provider.generate(
+        {
+          ...request,
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', name: 'lesson.pdf', mediaType: 'application/pdf', data: bytes }],
+            },
+          ],
+        },
+        context(),
+      ),
+    );
+    expect(events).toContainEqual({ type: 'text', text: 'Seen' });
+  });
   it('reports forbidden endpoint overrides as configuration errors before HTTP', async () => {
     expect(
       await provider.readiness({

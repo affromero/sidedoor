@@ -65,6 +65,16 @@ function messages(request: GenerationRequest): Anthropic.MessageParam[] {
       }
       const content: Anthropic.ContentBlockParam[] = message.content.map((part) => {
         if (part.type === 'text') return { type: 'text', text: part.text };
+        if (part.type === 'document')
+          return {
+            type: 'document',
+            title: part.name,
+            source: {
+              type: 'base64',
+              media_type: part.mediaType,
+              data: Buffer.from(part.data).toString('base64'),
+            },
+          };
         if (part.type === 'image_url')
           return { type: 'image', source: { type: 'url', url: imageUrl(part.url) } };
         if (part.type === 'image')

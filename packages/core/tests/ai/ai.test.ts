@@ -15,6 +15,31 @@ const request: GenerationRequest = {
   model: 'test-model',
   messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
 };
+it('requires vision before sending a PDF to a text-only provider', async () => {
+  const selected = registry(async function* () {
+    yield { type: 'text', text: 'unexpected' };
+  });
+  await expect(
+    selected
+      .generate({
+        ...request,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                name: 'lesson.pdf',
+                mediaType: 'application/pdf',
+                data: Buffer.from('%PDF-1.7'),
+              },
+            ],
+          },
+        ],
+      })
+      .next(),
+  ).rejects.toMatchObject({ code: 'unsupported_capability' });
+});
 function registry(generate: ProviderAdapter['generate'], options: Partial<RegistryOptions> = {}) {
   return new ProviderRegistry({
     credentials: {

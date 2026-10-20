@@ -27,6 +27,41 @@ async function collect(events: AsyncIterable<GenerationEvent>) {
   return output;
 }
 describe('OpenAI-compatible transport', () => {
+  it('sends original PDF bytes as a file content part', async () => {
+    const bytes = Buffer.from('%PDF-1.7\noriginal pages');
+    const provider = createCompatibleProvider({
+      descriptor,
+      defaultBaseUrl: 'https://selected.example/v1',
+      requiresKey: true,
+      fetch: async (_input, init) => {
+        expect(JSON.parse(String(init?.body)).messages[0].content).toEqual([
+          {
+            type: 'file',
+            file: {
+              filename: 'lesson.pdf',
+              file_data: `data:application/pdf;base64,${bytes.toString('base64')}`,
+            },
+          },
+        ]);
+        return stream([{ choices: [{ delta: { content: 'Seen' }, finish_reason: 'stop' }] }]);
+      },
+    });
+    const events = await collect(
+      provider.generate(
+        {
+          ...request,
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', name: 'lesson.pdf', mediaType: 'application/pdf', data: bytes }],
+            },
+          ],
+        },
+        { credentials: { apiKey: 'selected' }, signal: new AbortController().signal },
+      ),
+    );
+    expect(events).toContainEqual({ type: 'text', text: 'Seen' });
+  });
   it('reports malformed construction defaults as configuration errors even with an endpoint override', async () => {
     const provider = createCompatibleProvider({
       descriptor,

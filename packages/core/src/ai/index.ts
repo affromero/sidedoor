@@ -31,6 +31,7 @@ export type CredentialValues = Record<string, string | number | boolean>;
 export type ContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; url: string }
+  | { type: 'document'; mediaType: 'application/pdf'; name: string; data: Uint8Array }
   | { type: 'image' | 'audio'; mediaType: string; data: Uint8Array };
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -328,7 +329,9 @@ export class ProviderRegistry {
     if (request.tools?.length) required.add('tools');
     if (
       request.messages.some((message) =>
-        message.content.some((part) => part.type === 'image' || part.type === 'image_url'),
+        message.content.some(
+          (part) => part.type === 'image' || part.type === 'image_url' || part.type === 'document',
+        ),
       )
     )
       required.add('vision');
