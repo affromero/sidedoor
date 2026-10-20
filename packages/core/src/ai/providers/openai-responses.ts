@@ -99,6 +99,12 @@ function input(request: GenerationRequest): ResponseInput {
     }
     const content: ResponseInputContent[] = message.content.map((part) => {
       if (part.type === 'text') return { type: 'input_text', text: part.text };
+      if (part.type === 'document')
+        return {
+          type: 'input_file',
+          filename: part.name,
+          file_data: `data:${part.mediaType};base64,${Buffer.from(part.data).toString('base64')}`,
+        };
       if (part.type === 'image_url')
         return { type: 'input_image', detail: 'auto', image_url: imageUrl(part.url) };
       if (part.type === 'image')

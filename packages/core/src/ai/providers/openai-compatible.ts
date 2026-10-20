@@ -99,6 +99,14 @@ function messages(request: GenerationRequest, assistantImages = false): ChatComp
     }
     const content: ChatCompletionContentPart[] = message.content.map((part) => {
       if (part.type === 'text') return { type: 'text', text: part.text };
+      if (part.type === 'document')
+        return {
+          type: 'file',
+          file: {
+            filename: part.name,
+            file_data: `data:${part.mediaType};base64,${Buffer.from(part.data).toString('base64')}`,
+          },
+        };
       if (part.type === 'image_url') return { type: 'image_url', image_url: { url: imageUrl(part.url) } };
       if (part.type === 'image')
         return {

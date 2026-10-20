@@ -11,6 +11,37 @@ const descriptor: ProviderDescriptor = {
   models: [],
   capabilities: ['text', 'vision', 'structured', 'tools', 'web'],
 };
+it('sends original PDF bytes as a native document', async () => {
+  const bytes = Buffer.from('%PDF-1.7\noriginal pages');
+  const provider = createAnthropicProvider({
+    descriptor,
+    fetch: async (_input, init) => {
+      expect(JSON.parse(String(init?.body)).messages[0].content).toEqual([
+        {
+          type: 'document',
+          title: 'lesson.pdf',
+          source: { type: 'base64', media_type: 'application/pdf', data: bytes.toString('base64') },
+        },
+      ]);
+      return response();
+    },
+  });
+  const events = await collect(
+    provider.generate(
+      {
+        ...request,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'document', name: 'lesson.pdf', mediaType: 'application/pdf', data: bytes }],
+          },
+        ],
+      },
+      context(),
+    ),
+  );
+  expect(events).toContainEqual({ type: 'text', text: 'Hello' });
+});
 it('reports malformed Anthropic endpoints as configuration faults without probing', async () => {
   const provider = createAnthropicProvider({
     descriptor,
