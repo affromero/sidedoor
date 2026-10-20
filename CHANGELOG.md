@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-10-21
+
+### Fixed
+
+- Allow a scoped member session or device to delete its own household profile
+  through an explicit transactional operation. Other profiles, protected owners
+  and household management retain their authorization checks.
+  ([#96](https://github.com/affromero/sidedoor/pull/96), closes [#95](https://github.com/affromero/sidedoor/issues/95))
+
 ## [0.5.6] - 2026-10-20
 
 ### Added
