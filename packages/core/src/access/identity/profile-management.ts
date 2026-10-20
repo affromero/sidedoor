@@ -82,13 +82,41 @@ export class HouseholdProfileManagement {
 
   /** Application deletion must commit learner data and this mutation together. */
   prepareRemove(id: string, epoch: number, confirmed: boolean): PreparedProfileRemoval {
+    return this.prepareRemoval(id, epoch, confirmed, 'manager');
+  }
+
+  /** A principal-bound session or device may remove only its own member profile. */
+  prepareRemoveSelf(id: string, epoch: number, confirmed: boolean): PreparedProfileRemoval {
+    return this.prepareRemoval(id, epoch, confirmed, 'self');
+  }
+
+  private prepareRemoval(
+    id: string,
+    epoch: number,
+    confirmed: boolean,
+    authority: 'manager' | 'self',
+  ): PreparedProfileRemoval {
     if (!id || !Number.isSafeInteger(epoch) || epoch < 0 || !confirmed) throw new AccessError('invalid');
     return {
       id,
       apply: (state, credential) => {
-        const owner = this.authorize(state, credential);
-        if (owner && credential.kind === 'session')
-          this.access.sessionFromState(state, credential.token, true, true);
+        if (authority === 'self') {
+          if (state.mode !== 'household' || state.householdProfiles === undefined)
+            throw new AccessError('forbidden');
+          const principal =
+            credential.kind === 'session'
+              ? this.access.sessionFromState(state, credential.token).principal
+              : this.options.devices?.authenticateFromState(
+                  state,
+                  credential.token,
+                  this.options.requiredDeviceScopes ?? [],
+                ).principal;
+          if (!principal || principal.id !== id) throw new AccessError('forbidden');
+        } else {
+          const owner = this.authorize(state, credential);
+          if (owner && credential.kind === 'session')
+            this.access.sessionFromState(state, credential.token, true, true);
+        }
         const profile = state.householdProfiles!.find((item) => item.id === id);
         const principal = state.principals.find((item) => item.id === id);
         if (!profile || profile.epoch !== epoch) throw new AccessError('conflict');
