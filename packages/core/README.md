@@ -51,6 +51,14 @@ For a new provider, implement `ProviderAdapter` and register it with `ProviderRe
 
 See the [architecture guide](https://github.com/affromero/sidedoor/blob/main/docs/architecture.md) before integrating persistence, credentials or access. The caller owns authorization and the Serializable transaction that applies related state changes. Shared persistence methods do not grant authority by themselves.
 
+`HouseholdProfileManagement.prepareRemoveSelf(id, epoch, confirmed)` permits an
+authenticated principal-bound session or scoped device to delete its own member
+profile. Apply it in the same transaction as application data deletion and
+durable storage-cleanup admission. It revalidates credentials, scopes and the
+profile epoch when applied, preserves protected owners and minimum profile
+counts, and revokes the removed profile's associated access. Household
+management, creation and updates retain their existing authorization rules.
+
 `retrySerializableTransaction` retries recognized serialization conflicts and deadlocks
 with ten fresh transactions and exponential equal jitter. Total backoff is bounded
 at 2,130 ms, excluding transaction execution. Cancellation interrupts the wait;

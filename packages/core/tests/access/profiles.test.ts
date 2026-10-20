@@ -56,7 +56,151 @@ async function fixture() {
   return { access, store, owner, guest, profiles: new HouseholdProfileService(access) };
 }
 
+async function selfRemovalFixture() {
+  const values = await fixture();
+  const ownerId = (await values.access.authenticate(values.owner, true)).principal!.id;
+  const member = await values.store.transact((state) => {
+    state.householdProfiles = [
+      { id: ownerId, name: 'Owner', epoch: 0 },
+      { id: 'profile', name: 'Learner', epoch: 0 },
+      { id: 'dormant', name: 'Pending owner', epoch: 0 },
+    ];
+    return values.access.issueSession(state, 'profile', 'Member session');
+  });
+  await values.profiles.select(values.owner, ownerId);
+  const devices = new DeviceService({ access: values.access, scopesFor: () => ['app'] });
+  const device = await devices.redeemPairing(await devices.issuePairing(member, ['app'], 'Member phone'));
+  const management = new HouseholdProfileManagement(values.access, {
+    devices,
+    requiredDeviceScopes: ['app'],
+    ownerDeviceScope: 'owner',
+  });
+  return { ...values, member, device, devices, management, ownerId };
+}
+
 describe('household profiles', () => {
+  it.each(['session', 'device'] as const)(
+    'allows a scoped %s to delete only its own member and revoke all associated access',
+    async (kind) => {
+      const { access, store, owner, guest, member, device, devices, management, profiles, ownerId } =
+        await selfRemovalFixture();
+      await profiles.select(guest, 'profile');
+      const sharedDevice = await devices.redeemPairing(
+        await devices.issuePairing(guest, ['app'], 'Shared tablet', { defaultProfileId: 'profile' }),
+      );
+      const pending = await devices.issuePairing(member, ['app'], 'Another phone');
+      const removal = management.prepareRemoveSelf('profile', 0, true);
+      await store.transact((state) =>
+        removal.apply(state, { kind, token: kind === 'session' ? member : device }),
+      );
+      const remaining = await store.read();
+      expect(remaining.principals.some((principal) => principal.id === 'profile')).toBe(false);
+      expect(remaining.householdProfiles?.some((profile) => profile.id === 'profile')).toBe(false);
+      expect(remaining.householdProfiles?.some((profile) => profile.id === ownerId)).toBe(true);
+      expect((await access.authenticate(owner, true)).principal?.id).toBe(ownerId);
+      expect(await profiles.selected(guest)).toBeNull();
+      await expect(access.authenticate(member)).rejects.toMatchObject({ code: 'unauthorized' });
+      for (const token of [device, sharedDevice])
+        await expect(devices.authenticate(token, ['app'])).rejects.toMatchObject({ code: 'unauthorized' });
+      await expect(devices.redeemPairing(pending)).rejects.toMatchObject({ code: 'unauthorized' });
+    },
+  );
+
+  it.each(['session', 'device'] as const)(
+    'never grants a self-removing %s household management or another identity',
+    async (kind) => {
+      const { store, member, device, management, ownerId } = await selfRemovalFixture();
+      const credential = { kind, token: kind === 'session' ? member : device };
+      for (const operation of [
+        management.prepareCreate('New learner'),
+        management.prepareUpdate('profile', 'Changed'),
+        management.prepareRemove('profile', 0, true),
+        management.prepareRemoveSelf('dormant', 0, true),
+        management.prepareRemoveSelf(ownerId, 0, true),
+      ])
+        await expect(store.transact((state) => operation.apply(state, credential))).rejects.toMatchObject({
+          code: 'forbidden',
+        });
+      expect((await store.read()).householdProfiles?.find((profile) => profile.id === 'profile')?.name).toBe(
+        'Learner',
+      );
+    },
+  );
+
+  it.each(['session', 'device'] as const)(
+    'revalidates revoked, expired and changed-epoch %s credentials at application time',
+    async (kind) => {
+      for (const failure of ['revoked', 'expired', 'principal-epoch', 'profile-epoch']) {
+        const { store, member, device, management } = await selfRemovalFixture();
+        const credential = { kind, token: kind === 'session' ? member : device };
+        const removal = management.prepareRemoveSelf('profile', 0, true);
+        await store.transact((state) => {
+          if (failure === 'principal-epoch') state.principals.find((item) => item.id === 'profile')!.epoch++;
+          else if (failure === 'profile-epoch')
+            state.householdProfiles!.find((item) => item.id === 'profile')!.epoch++;
+          else if (kind === 'session') {
+            const session = state.sessions.find((item) => item.principalId === 'profile')!;
+            if (failure === 'expired') session.expiresAt = 0;
+            else state.sessions = state.sessions.filter((item) => item !== session);
+          } else {
+            const saved = state.deviceTokens.find((item) => item.principalId === 'profile')!;
+            if (failure === 'expired') saved.expiresAt = 0;
+            else state.deviceTokens = state.deviceTokens.filter((item) => item !== saved);
+          }
+        });
+        await expect(store.transact((state) => removal.apply(state, credential))).rejects.toMatchObject({
+          code: failure === 'profile-epoch' ? 'conflict' : 'unauthorized',
+        });
+        expect((await store.read()).principals.some((principal) => principal.id === 'profile')).toBe(true);
+      }
+    },
+  );
+
+  it('revalidates required native scopes before applying prepared self deletion', async () => {
+    const { store, device, management } = await selfRemovalFixture();
+    const removal = management.prepareRemoveSelf('profile', 0, true);
+    await store.transact((state) => {
+      state.deviceTokens.find((item) => item.principalId === 'profile')!.scopes = ['other'];
+    });
+    const original = await store.read();
+    await expect(
+      store.transact((state) => removal.apply(state, { kind: 'device', token: device })),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await store.read()).toEqual(original);
+  });
+
+  it('retains confirmation, protected owners, minimum counts and atomic application rollback for self deletion', async () => {
+    const { access, store, member, guest, management, ownerId } = await selfRemovalFixture();
+    expect(() => management.prepareRemoveSelf('profile', 0, false)).toThrow();
+    const removal = management.prepareRemoveSelf('profile', 0, true);
+    await expect(
+      store.transact((state) => removal.apply(state, { kind: 'session', token: guest })),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    for (const id of [ownerId, 'dormant']) {
+      const token = await store.transact((state) => access.issueSession(state, id, 'Protected identity'));
+      const protectedRemoval = management.prepareRemoveSelf(id, 0, true);
+      await expect(
+        store.transact((state) => protectedRemoval.apply(state, { kind: 'session', token })),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+    }
+    const minimum = new HouseholdProfileManagement(access, { minimumProfiles: 3 }).prepareRemoveSelf(
+      'profile',
+      0,
+      true,
+    );
+    await expect(
+      store.transact((state) => minimum.apply(state, { kind: 'session', token: member })),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    const original = await store.read();
+    await expect(
+      store.transact((state) => {
+        removal.apply(state, { kind: 'session', token: member });
+        throw new Error('Application cleanup could not commit');
+      }),
+    ).rejects.toThrow('cleanup');
+    expect(await store.read()).toEqual(original);
+  });
+
   it('protects minimum counts and pending owners while keeping household members manageable', async () => {
     const { access, store, guest } = await fixture();
     await store.transact((state) => {
