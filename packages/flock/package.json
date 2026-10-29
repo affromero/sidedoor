@@ -37,6 +37,6 @@
     "install": "node-gyp rebuild"
   },
   "dependencies": {
-    "nan": "2.29.0"
+    "nan": "2.30.0"
   }
 }
