@@ -15,6 +15,16 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ['version-update:semver-major']
+      # Keep the Node 20 toolchain until a supported-runtime migration.
+      - dependency-name: jsdom
+        update-types: ['version-update:semver-major']
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
+      - dependency-name: tsup
+        update-types: ['version-update:semver-major']
+      # SDK 1 changes the default Anthropic API version and temperature contract.
+      - dependency-name: '@anthropic-ai/sdk'
+        update-types: ['version-update:semver-major']
     groups:
       npm:
         patterns:
