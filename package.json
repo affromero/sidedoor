@@ -127,6 +127,7 @@
     ]
   },
   "overrides": {
+    "minimatch@^10.0.0": "11.0.3",
     "esbuild": "0.28.2"
   }
 }
