@@ -270,6 +270,8 @@
     "thesidedoor-flock": "0.5.7"
   },
   "devDependencies": {
-    "@types/node": "26.6.6"
+    "@types/node": "26.6.6",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
   }
 }

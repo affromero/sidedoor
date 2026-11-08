@@ -5,6 +5,7 @@ import { StorageBackendRegistry } from './backend-registry';
 import { cleanupRows } from '../cleanup/cleanup-collectors';
 import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { normalizeStorageReference, validateStorageKey } from './references';
+import { StorageTargetFence } from '../execution/target-fence';
 
 const identity = z.string().min(1).max(200);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -52,6 +53,7 @@ const assetSchema = z
     consumers: z.array(identity),
   })
   .strict();
+export { assetSchema as storageAssetSchema };
 const aliasSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -310,6 +312,7 @@ export class StorageReferenceRegistry {
     const consumers = replacements.map((value) => value.consumer).sort();
     const next = this.validate(input.next);
     await this.validateBackend(next);
+    await new StorageTargetFence(this.database, this.dialect).admit(next.target);
     const id = assetId(next);
     const assetBackend = this.backend('asset', id);
     const previousAsset = await assetBackend.read();

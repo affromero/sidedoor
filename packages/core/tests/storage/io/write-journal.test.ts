@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -11,6 +11,7 @@ import {
   StorageBackendRegistry,
 } from '../../../src/storage/registry/backend-registry';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
+import { StorageTargetFence } from '../../../src/storage/execution/target-fence';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -57,6 +58,61 @@ async function fixture() {
 }
 
 describe('durable storage write journal', () => {
+  it('rejects a new write to a retired physical target', async () => {
+    const { executor, journal, prepare, transaction } = await fixture();
+    const intent = prepare();
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    await transaction(() => fence.retire({ ...intent.target, retirementId: randomUUID() }));
+    await expect(transaction(() => journal.begin(intent, 2))).rejects.toThrow('target is retired');
+    expect((await journal.list('learner')).intents).toEqual([]);
+  });
+
+  it('does not retire a target until its existing writer proves no bytes were created', async () => {
+    const { executor, journal, prepare, transaction } = await fixture();
+    const intent = prepare();
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    const retirement = { ...intent.target, retirementId: randomUUID() };
+    await transaction(() => journal.begin(intent, 2));
+    await expect(transaction(() => fence.retire(retirement))).rejects.toThrow('retained writes');
+    await transaction(() => journal.finish(intent, { kind: 'not_created' }));
+    await transaction(() => fence.retire(retirement));
+    await expect(transaction(() => journal.begin(prepare(), 2))).rejects.toThrow('target is retired');
+  });
+
+  it('keeps target retirement blocked while a write outcome is uncertain or needs cleanup', async () => {
+    const { executor, journal, prepare, transaction } = await fixture();
+    const intent = prepare();
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    const retirement = { ...intent.target, retirementId: randomUUID() };
+    await transaction(() => journal.begin(intent, 2));
+    await transaction(() => journal.finish(intent, { kind: 'uncertain' }));
+    await expect(transaction(() => fence.retire(retirement))).rejects.toThrow('retained writes');
+    await transaction(() =>
+      journal.resolveUncertain(intent, { kind: 'observed_io_completion', id: 'writer-stopped' }),
+    );
+    await expect(transaction(() => fence.retire(retirement))).rejects.toThrow('retained writes');
+  });
+
+  it('finds a retained writer beyond the first global inventory page', async () => {
+    const { executor, journal, prepare, transaction } = await fixture();
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    const subjects = Array.from({ length: 101 }, (_, index) => `learner:${index}`).sort((left, right) =>
+      hash(left).localeCompare(hash(right)),
+    );
+    const intents = subjects.map((subject, index) => {
+      const intent = prepare(subject);
+      return { ...intent, target: { ...intent.target, key: `recordings/${index}.wav` } };
+    });
+    await transaction(async () => {
+      for (const intent of intents) await journal.begin(intent, 2);
+    });
+    const last = intents.at(-1)!;
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    await expect(
+      transaction(() => fence.retire({ ...last.target, retirementId: randomUUID() })),
+    ).rejects.toThrow('retained writes');
+  });
+
   it('removes proven uncreated writes without scheduling deletion or permitting operation reuse', async () => {
     const { journal, prepare, transaction } = await fixture();
     const intent = prepare();

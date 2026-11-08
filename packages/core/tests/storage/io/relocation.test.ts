@@ -14,7 +14,11 @@ import {
   type StorageRelocationInput,
 } from '../../../src/storage/local/relocation';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
-import { StorageWriteJournal, prepareStorageTombstone } from '../../../src/storage/execution/write-journal';
+import {
+  StorageWriteJournal,
+  prepareStorageTombstone,
+  prepareStorageWrite,
+} from '../../../src/storage/execution/write-journal';
 import { StorageCleanupJournal } from '../../../src/storage/cleanup/cleanup-journal';
 import { prepareStorageCleanup } from '../../../src/storage/cleanup/cleanup-state';
 import { StorageCleanupAttribution } from '../../../src/storage/cleanup/cleanup-attribution';
@@ -114,6 +118,7 @@ function fixture(afterQuery?: (values: readonly unknown[], rows: readonly unknow
   }
   return {
     database,
+    executor,
     registry,
     relocations,
     writes,
@@ -128,6 +133,285 @@ function fixture(afterQuery?: (values: readonly unknown[], rows: readonly unknow
 }
 
 describe('explicit storage relocation provenance', () => {
+  it('admits one exact legacy asset atomically and repeats only the same binding', async () => {
+    const { asset, classifier, cleanup, registry, transaction, database, writes } = fixture();
+    const originalScope = { subjectId: 'course:one', generation: 1 };
+    const saved = await asset(['class:one:worksheet'], null, [originalScope]);
+    const job = prepareStorageCleanup({
+      namespace: 'test',
+      subjectId: 'class:one',
+      generation: 2,
+      retentionPolicy: 'job-id-snapshots-v1',
+    });
+    await transaction(() => cleanup.createJob(job));
+    const input = {
+      jobId: job.id,
+      epoch: job.epoch,
+      subjectId: job.subjectId,
+      generation: job.generation,
+      originalScope,
+      consumer: 'class:one:worksheet',
+      reference: saved.prepared.reference,
+      verifyOwnership: async () => true,
+      operationId: randomUUID(),
+    };
+    const unrelated = await asset(['class:one:worksheet'], null, [originalScope]);
+    const unrelatedOperation = randomUUID();
+    await transaction(() =>
+      registry.retire({
+        operationId: unrelatedOperation,
+        consumer: input.consumer,
+        previousReference: unrelated.prepared.reference,
+      }),
+    );
+    await expect(
+      transaction(() =>
+        classifier.admitDelegatedAsset({
+          ...input,
+          operationId: unrelatedOperation,
+          reference: unrelated.prepared.reference,
+        }),
+      ),
+    ).rejects.toThrow('binding is missing');
+    await expect(
+      transaction(async () => {
+        await classifier.admitDelegatedAsset(input);
+        throw new Error('Rollback admission');
+      }),
+    ).rejects.toThrow('Rollback admission');
+    expect(await registry.resolve({ consumer: input.consumer, reference: input.reference })).not.toBeNull();
+    const admitted = await transaction(() => classifier.admitDelegatedAsset(input));
+    expect(admitted.assetId).toBe(saved.id);
+    const binding = database.prepare("SELECT state FROM SidedoorState WHERE id LIKE 'sd-cda:%'").get();
+    expect(binding?.state).not.toContain(input.consumer);
+    expect(binding?.state).not.toContain(input.reference);
+    expect(binding?.state).not.toContain(originalScope.subjectId);
+    const lateWrite = prepareStorageWrite({
+      namespace: 'test',
+      ...originalScope,
+      target: saved.prepared.target,
+    });
+    await expect(transaction(() => writes.begin(lateWrite, originalScope.generation))).rejects.toThrow(
+      'target is retired',
+    );
+    await expect(
+      transaction(() =>
+        registry.replace({ consumer: 'class:two:worksheet', previousReference: null, next: saved.prepared }),
+      ),
+    ).rejects.toThrow('target is retired');
+    expect(await transaction(() => classifier.admitDelegatedAsset(input))).toEqual(admitted);
+    expect((await cleanup.listManifests(job.id)).pages).toHaveLength(1);
+    const otherJob = prepareStorageCleanup({
+      namespace: 'test',
+      subjectId: 'class:other',
+      generation: 3,
+      retentionPolicy: 'job-id-snapshots-v1',
+    });
+    await transaction(() => cleanup.createJob(otherJob));
+    await expect(
+      transaction(() =>
+        classifier.admitDelegatedAsset({
+          ...input,
+          jobId: otherJob.id,
+          subjectId: otherJob.subjectId,
+          generation: otherJob.generation,
+        }),
+      ),
+    ).rejects.toThrow('binding mismatch');
+    const [page] = (await cleanup.listManifests(job.id)).pages;
+    if (!page) throw new Error('Missing delegated manifest');
+    const forged = {
+      ...(page.entries[0] as Record<string, unknown>),
+      jobId: otherJob.id,
+      subjectId: otherJob.subjectId,
+      generation: otherJob.generation,
+    };
+    await transaction(() =>
+      cleanup.recordManifestPage(otherJob.id, otherJob.epoch, {
+        id: 'forged',
+        entries: [forged],
+      }),
+    );
+    await expect(
+      classifier.inspectPage({
+        jobId: otherJob.id,
+        epoch: otherJob.epoch,
+        subjectId: otherJob.subjectId,
+        generation: otherJob.generation,
+        pageId: 'forged',
+      }),
+    ).rejects.toThrow('binding mismatch');
+    await expect(
+      transaction(() =>
+        classifier.admitDelegatedAsset({ ...input, originalScope: { ...originalScope, generation: 3 } }),
+      ),
+    ).rejects.toThrow();
+    database
+      .prepare(
+        `UPDATE SidedoorState SET state = json_insert(state, '$.consumers[#]', ?)
+      WHERE json_extract(state, '$.kind') = 'storage_asset' AND json_extract(state, '$.id') = ?`,
+      )
+      .run('class:two:worksheet', saved.id);
+    expect(
+      (
+        await classifier.inspectPage({
+          jobId: job.id,
+          epoch: job.epoch,
+          subjectId: job.subjectId,
+          generation: job.generation,
+          pageId: `delegated:${input.operationId}`,
+        })
+      ).entries,
+    ).toEqual([{ index: 0, status: 'unresolved', reason: 'live_consumers' }]);
+    const targetDigest = createHash('sha256')
+      .update(JSON.stringify([saved.prepared.target.binding, saved.prepared.target.key]))
+      .digest('hex');
+    database.prepare('DELETE FROM SidedoorState WHERE id = ?').run(`sd-tf:1:${targetDigest}`);
+    await expect(
+      classifier.inspectPage({
+        jobId: job.id,
+        epoch: job.epoch,
+        subjectId: job.subjectId,
+        generation: job.generation,
+        pageId: `delegated:${input.operationId}`,
+      }),
+    ).rejects.toThrow('target retirement is missing');
+  });
+  it('preflights one legacy asset only for its verified class cleanup', async () => {
+    const { asset, classifier, cleanup, transaction, writes, relocations, proof, executor } = fixture();
+    const originalScope = { subjectId: 'course:one', generation: 1 };
+    const profileScope = { subjectId: 'profile:owner', generation: 4 };
+    const saved = await asset(['class:one:worksheet'], null, [originalScope, profileScope]);
+    const job = prepareStorageCleanup({
+      namespace: 'test',
+      subjectId: 'class:one',
+      generation: 2,
+      retentionPolicy: 'job-id-snapshots-v1',
+    });
+    await transaction(() => cleanup.createJob(job));
+    const input = {
+      jobId: job.id,
+      epoch: job.epoch,
+      subjectId: job.subjectId,
+      generation: job.generation,
+      originalScope,
+      consumer: 'class:one:worksheet',
+      reference: saved.prepared.reference,
+      verifyOwnership: async () => true,
+    };
+    const result = await transaction(() => classifier.inspectDelegatedAsset(input));
+    expect(result.assetId).toBe(saved.id);
+    await expect(
+      transaction(() => classifier.inspectDelegatedAsset({ ...input, verifyOwnership: async () => false })),
+    ).rejects.toThrow('ownership was not verified');
+    await expect(
+      transaction(() =>
+        classifier.inspectDelegatedAsset({ ...input, originalScope: { ...originalScope, generation: 3 } }),
+      ),
+    ).rejects.toThrow('original scope does not match');
+    await expect(
+      transaction(() => classifier.inspectDelegatedAsset({ ...input, generation: 3 })),
+    ).rejects.toThrow('cleanup authority');
+    const shared = await asset(['class:one:worksheet', 'class:two:worksheet'], null, [originalScope]);
+    await expect(
+      transaction(() => classifier.inspectDelegatedAsset({ ...input, reference: shared.prepared.reference })),
+    ).rejects.toThrow('other consumers');
+    const first = await asset(['class:one:worksheet'], null, [originalScope]);
+    const second = await asset(['class:one:worksheet'], first.prepared.reference, [originalScope]);
+    await transaction(() => relocations.record(proof(first, second, ['class:one:worksheet'])));
+    await expect(
+      transaction(() => classifier.inspectDelegatedAsset({ ...input, reference: second.prepared.reference })),
+    ).rejects.toThrow('relocation history');
+    const registered = await new StorageBackendRegistry(executor, 'sqlite', 'test').get(
+      saved.prepared.target.backendId,
+    );
+    if (!registered || registered.descriptor.kind !== 'object') throw new Error('Missing fixture backend');
+    const alternate = prepareStorageBackend('test', {
+      ...registered.descriptor,
+      publicUrl: 'https://alternate.example',
+    });
+    expect(alternate.id).not.toBe(saved.prepared.target.backendId);
+    await transaction(() => new StorageBackendRegistry(executor, 'sqlite', 'test').register(alternate));
+    const pending = prepareStorageWrite({
+      namespace: 'test',
+      ...profileScope,
+      target: { ...saved.prepared.target, backendId: alternate.id },
+    });
+    await transaction(() => writes.begin(pending, profileScope.generation));
+    await expect(transaction(() => classifier.inspectDelegatedAsset(input))).rejects.toThrow(
+      'retained write intents',
+    );
+    await transaction(() => writes.finish(pending, { kind: 'not_created' }));
+    const foreignBackend = prepareStorageBackend('other-app', registered.descriptor);
+    await transaction(() =>
+      new StorageBackendRegistry(executor, 'sqlite', 'other-app').register(foreignBackend),
+    );
+    const foreignWrites = new StorageWriteJournal(executor, 'sqlite', 'other-app');
+    const foreignWrite = prepareStorageWrite({
+      namespace: 'other-app',
+      subjectId: 'foreign:owner',
+      generation: 1,
+      target: { ...saved.prepared.target, backendId: foreignBackend.id },
+    });
+    await transaction(() => foreignWrites.begin(foreignWrite, 1));
+    await expect(
+      transaction(() => classifier.admitDelegatedAsset({ ...input, operationId: randomUUID() })),
+    ).rejects.toThrow('target has retained writes');
+    await transaction(() => foreignWrites.finish(foreignWrite, { kind: 'not_created' }));
+    await transaction(() => classifier.admitDelegatedAsset({ ...input, operationId: randomUUID() }));
+    await expect(
+      transaction(() => foreignWrites.begin({ ...foreignWrite, operationId: randomUUID() }, 1)),
+    ).rejects.toThrow('target is retired');
+  });
+  it('preserves a physical target still referenced by another namespace', async () => {
+    const { asset, classifier, cleanup, registry, transaction, executor } = fixture();
+    const originalScope = { subjectId: 'course:one', generation: 1 };
+    const saved = await asset(['class:one:worksheet'], null, [originalScope]);
+    const registered = await new StorageBackendRegistry(executor, 'sqlite', 'test').get(
+      saved.prepared.target.backendId,
+    );
+    if (!registered) throw new Error('Missing fixture backend');
+    const foreignBackend = prepareStorageBackend('other-app', registered.descriptor);
+    const foreignRegistry = new StorageReferenceRegistry(executor, 'sqlite', 'other-app');
+    const foreignReference = prepareStorageReference({
+      ...saved.prepared,
+      namespace: 'other-app',
+      operationId: randomUUID(),
+      target: { ...saved.prepared.target, backendId: foreignBackend.id },
+      scopes: [{ subjectId: 'foreign:owner', generation: 1 }],
+    });
+    const job = prepareStorageCleanup({
+      namespace: 'test',
+      subjectId: 'class:one',
+      generation: 2,
+      retentionPolicy: 'job-id-snapshots-v1',
+    });
+    await transaction(async () => {
+      await new StorageBackendRegistry(executor, 'sqlite', 'other-app').register(foreignBackend);
+      await foreignRegistry.replace({
+        consumer: 'foreign:worksheet',
+        previousReference: null,
+        next: foreignReference,
+      });
+      await cleanup.createJob(job);
+    });
+    const input = {
+      jobId: job.id,
+      epoch: job.epoch,
+      subjectId: job.subjectId,
+      generation: job.generation,
+      originalScope,
+      consumer: 'class:one:worksheet',
+      reference: saved.prepared.reference,
+      verifyOwnership: async () => true,
+      operationId: randomUUID(),
+    };
+    await expect(transaction(() => classifier.admitDelegatedAsset(input))).rejects.toThrow('live consumers');
+    expect(await registry.resolve({ consumer: input.consumer, reference: input.reference })).not.toBeNull();
+    expect(
+      await foreignRegistry.resolve({ consumer: 'foreign:worksheet', reference: input.reference }),
+    ).not.toBeNull();
+  });
   it('requires the exact copy operation on a chain after further relocations', async () => {
     const { relocations, transaction, asset, proof } = fixture();
     const first = await asset();

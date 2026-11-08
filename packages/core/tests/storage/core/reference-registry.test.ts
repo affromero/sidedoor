@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -11,6 +11,7 @@ import {
   prepareStorageBackend,
 } from '../../../src/storage/registry/backend-registry';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
+import { StorageTargetFence } from '../../../src/storage/execution/target-fence';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -62,10 +63,63 @@ async function fixture() {
       .all(kind)
       .map((row) => JSON.parse(String(row.state)));
   }
-  return { database, registry, prepare, transaction, records };
+  return { database, executor, registry, prepare, transaction, records };
 }
 
 describe('durable storage reference attribution', () => {
+  it('does not publish a reference to a retired physical target', async () => {
+    const { executor, registry, prepare, transaction } = await fixture();
+    const next = prepare();
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    await transaction(() => fence.retire({ ...next.target, retirementId: randomUUID() }));
+    await expect(
+      transaction(() => registry.replace({ consumer: 'owner:avatar', previousReference: null, next })),
+    ).rejects.toThrow('target is retired');
+    expect(await registry.readReference(next.reference)).toBeNull();
+  });
+
+  it('does not retire a target while a reference still has a consumer', async () => {
+    const { executor, registry, prepare, transaction } = await fixture();
+    const next = prepare();
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    const retirementId = randomUUID();
+    await transaction(() => registry.replace({ consumer: 'owner:avatar', previousReference: null, next }));
+    await expect(transaction(() => fence.retire({ ...next.target, retirementId }))).rejects.toThrow(
+      'live consumers',
+    );
+    await transaction(() =>
+      registry.retire({
+        operationId: retirementId,
+        consumer: 'owner:avatar',
+        previousReference: next.reference,
+      }),
+    );
+    await transaction(() => fence.retire({ ...next.target, retirementId }));
+    await expect(
+      transaction(() => registry.replace({ consumer: 'owner:avatar', previousReference: null, next })),
+    ).rejects.toThrow('target is retired');
+  });
+
+  it('finds a live reference beyond the first global asset page', async () => {
+    const { executor, registry, prepare, transaction } = await fixture();
+    const digest = (value: ReturnType<typeof prepare>) =>
+      createHash('sha256')
+        .update(JSON.stringify([value.target.binding, value.target.key]))
+        .digest('hex');
+    const references = Array.from({ length: 101 }, prepare).sort((left, right) =>
+      digest(left).localeCompare(digest(right)),
+    );
+    await transaction(async () => {
+      for (const [index, next] of references.entries())
+        await registry.replace({ consumer: `learner:${index}`, previousReference: null, next });
+    });
+    const last = references.at(-1)!;
+    const fence = new StorageTargetFence(executor, 'sqlite');
+    await expect(
+      transaction(() => fence.retire({ ...last.target, retirementId: randomUUID() })),
+    ).rejects.toThrow('live consumers');
+  });
+
   it('retains exact transfer evidence after the source loses its consumer', async () => {
     const { registry, prepare, transaction } = await fixture();
     const source = prepare();

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { Readable } from 'node:stream';
 import { afterEach, expect, it } from 'vitest';
@@ -9,10 +12,73 @@ import { StorageWriteJournal } from '../../../src/storage/execution/write-journa
 import { storageBackendBinding } from '../../../src/storage/registry/references';
 import { retrySerializableTransaction, type SqlExecutor } from '../../../src/storage/sql/sql';
 import { StorageReadCleanupError } from '../../../src/storage/local/owned-copy';
+import { LocalStorageCleanup } from '../../../src/storage/cleanup/backends/local-cleanup';
+import { LocalStorageWriter } from '../../../src/storage/local/local-writer';
+import { StorageTargetFence } from '../../../src/storage/execution/target-fence';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
+});
+
+it('keeps a real in-flight file write and its published reference safe from target retirement', async () => {
+  const item = await fixture();
+  const directory = await mkdtemp(join(tmpdir(), 'sidedoor-target-write-'));
+  const cleanup = await LocalStorageCleanup.capture(directory);
+  const writer = await LocalStorageWriter.restore(cleanup.identity);
+  const fence = new StorageTargetFence(item.executor, 'sqlite');
+  const options = item.options(['waveform']);
+  let releaseWrite = () => {};
+  const released = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  let notifyStarted = () => {};
+  const started = new Promise<void>((resolve) => {
+    notifyStarted = resolve;
+  });
+  const artifact = options.artifacts[0]!;
+  options.artifacts = [
+    {
+      ...artifact,
+      body: Readable.from(
+        (async function* () {
+          yield Buffer.from('first ');
+          notifyStarted();
+          await released;
+          yield Buffer.from('second');
+        })(),
+      ),
+      captureWriter: async () => ({
+        descriptor: { kind: 'local', identity: cleanup.identity, referenceRoot: cleanup.identity.root },
+        write: async (key, body) => {
+          await writer.writeImmutable(key, body);
+          return key;
+        },
+      }),
+    },
+  ];
+  const operation = writeReferenceSet(options);
+  try {
+    await started;
+    const [intent] = (await new StorageWriteJournal(item.executor, 'sqlite', 'app').list('episode:one'))
+      .intents;
+    if (!intent) throw new Error('Missing admitted write');
+    expect(await cleanup.has(intent.target.key)).toBe(true);
+    await expect(
+      item.transaction(() => fence.retire({ ...intent.target, retirementId: randomUUID() })),
+    ).rejects.toThrow('retained writes');
+    releaseWrite();
+    const published = await operation;
+    expect(await readFile(join(cleanup.identity.root, published.waveform!), 'utf8')).toBe('first second');
+    await expect(
+      item.transaction(() => fence.retire({ ...intent.target, retirementId: randomUUID() })),
+    ).rejects.toThrow('live consumers');
+    expect(await readFile(join(cleanup.identity.root, published.waveform!), 'utf8')).toBe('first second');
+  } finally {
+    releaseWrite();
+    await operation.catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 it.each(['recovered', 'exhausted', 'cancelled'] as const)(

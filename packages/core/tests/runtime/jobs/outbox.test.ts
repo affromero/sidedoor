@@ -8,7 +8,13 @@ import {
   prepareJob,
 } from '../../../src/runtime/jobs/outbox';
 import { randomUUID } from 'node:crypto';
-import { StorageCleanupJournal, prepareStorageCleanup } from '../../../src/storage/index';
+import {
+  StorageBackendRegistry,
+  StorageCleanupJournal,
+  prepareStorageBackend,
+  prepareStorageCleanup,
+  storageBackendBinding,
+} from '../../../src/storage/index';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -50,6 +56,121 @@ function fixture() {
 }
 
 describe('durable job delivery and completion', () => {
+  it('erases only a verified legacy job under a separate class cleanup', async () => {
+    const { database, executor, outbox, transaction, prepare } = fixture();
+    const first = await transaction(() => outbox.enqueue(prepare()));
+    const other = await transaction(() => outbox.enqueue(prepare()));
+    const executions = new JobExecutionJournal(executor, 'sqlite', 'app');
+    const active = {
+      id: randomUUID(),
+      executorId: randomUUID(),
+      parentId: first.job.id,
+      fingerprint: first.fingerprint,
+    };
+    await transaction(() => executions.begin(active));
+    const deletionScope = { subjectId: 'class:lesson', generation: 2 };
+    const cleanup = new StorageCleanupJournal(executor, 'sqlite', 'app');
+    const job = prepareStorageCleanup({
+      namespace: 'app',
+      ...deletionScope,
+      retentionPolicy: 'job-id-snapshots-v1',
+    });
+    const location = { kind: 'object' as const, endpoint: 'https://storage.example', bucket: 'private' };
+    const backend = prepareStorageBackend('app', {
+      kind: 'object',
+      location,
+      binding: storageBackendBinding(location),
+    });
+    await transaction(async () => {
+      await new StorageBackendRegistry(executor, 'sqlite', 'app').register(backend);
+      await cleanup.createJob(job);
+      await cleanup.registerCollectors(job.id, job.epoch, [
+        {
+          id: 'worksheet',
+          kind: 'inventory',
+          backendIds: [backend.id],
+          scope: 'worksheets/lesson',
+          match: 'key',
+        },
+      ]);
+      await outbox.complete(first.job.id, first.fingerprint);
+    });
+    const input = {
+      id: first.job.id,
+      fingerprint: first.fingerprint,
+      expectedHandler: 'audio',
+      expectedVersion: 1,
+      originalScope: first.job.scopes[0]!,
+      deletionScope,
+      cleanupJobId: job.id,
+      verifyOwnership: async (record: { job: { id: string } }) => record.job.id === first.job.id,
+    };
+    await expect(transaction(() => outbox.eraseDelegated(input))).rejects.toThrow('cleanup is unresolved');
+    await transaction(() => executions.settle(active));
+    await expect(transaction(() => outbox.eraseDelegated(input))).rejects.toThrow(
+      'prepared cleanup evidence',
+    );
+    await transaction(async () => {
+      await cleanup.recordManifestPage(job.id, job.epoch, { id: 'worksheet', entries: ['fixture'] });
+      await cleanup.resolveManifest(job.id, job.epoch, 'worksheet', {
+        resolver: 'test',
+        entries: [{ index: 0, kind: 'non_storage', reason: 'fixture job' }],
+      });
+    });
+    await expect(
+      transaction(() => outbox.eraseDelegated({ ...input, verifyOwnership: async () => false })),
+    ).rejects.toThrow('ownership was not verified');
+    await expect(
+      transaction(() =>
+        outbox.eraseDelegated({ ...input, originalScope: { subjectId: 'profile:other', generation: 1 } }),
+      ),
+    ).rejects.toThrow('matching completed work');
+    await expect(
+      transaction(() =>
+        outbox.eraseDelegated({ ...input, deletionScope: { ...deletionScope, generation: 3 } }),
+      ),
+    ).rejects.toThrow('matching deletion admission');
+    await expect(
+      transaction(() => outbox.eraseDelegated({ ...input, expectedHandler: 'wrong' })),
+    ).rejects.toThrow('matching completed work');
+    await expect(
+      transaction(() =>
+        outbox.eraseDelegated({
+          ...input,
+          id: other.job.id,
+          fingerprint: other.fingerprint,
+        }),
+      ),
+    ).rejects.toThrow('matching completed work');
+    expect((await outbox.read(first.job.id))?.complete).toBe(true);
+    const snapshots = new JobSnapshot(executor, 'sqlite', 'app');
+    await transaction(async () => {
+      await snapshots.create(first.job.id, first.fingerprint);
+      for (let page = 0; page < 11; page++)
+        await snapshots.append(first.job.id, first.fingerprint, page, [`private page ${page}`]);
+      await snapshots.seal(first.job.id, first.fingerprint);
+    });
+    await expect(
+      transaction(async () => {
+        await outbox.eraseDelegated(input);
+        throw new Error('Abort deletion');
+      }),
+    ).rejects.toThrow('Abort deletion');
+    expect((await outbox.read(first.job.id))?.complete).toBe(true);
+    expect((await snapshots.read(first.job.id, first.fingerprint, 10)).items).toEqual(['private page 10']);
+    await transaction(() => outbox.eraseDelegated(input));
+    expect((await outbox.receipt(first.job.id))?.status).toBe('erased');
+    const binding = database.prepare("SELECT state FROM SidedoorState WHERE id LIKE 'sd-jde:%'").get();
+    expect(binding?.state).not.toContain(deletionScope.subjectId);
+    expect(binding?.state).not.toContain(input.originalScope.subjectId);
+    expect(binding?.state).not.toContain(input.cleanupJobId);
+    await expect(snapshots.read(first.job.id, first.fingerprint, 10)).rejects.toThrow('being erased');
+    expect(await outbox.read(other.job.id)).not.toBeNull();
+    await transaction(() => outbox.eraseDelegated(input));
+    await expect(transaction(() => outbox.eraseDelegated({ ...input, expectedVersion: 2 }))).rejects.toThrow(
+      'binding mismatch',
+    );
+  });
   it('retains workspace recovery identity until verified removal and fences settlement', async () => {
     const { executor, outbox, transaction, prepare } = fixture();
     const journal = new JobExecutionJournal(executor, 'sqlite', 'app');
