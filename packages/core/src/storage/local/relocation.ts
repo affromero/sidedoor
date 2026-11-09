@@ -289,7 +289,16 @@ export class StorageRelocationRegistry {
     }
     return { source, destination };
   }
+  /** Verify an existing relocation without creating or repairing any evidence. */
+  async verifyExisting(input: StorageRelocationInput): Promise<void> {
+    await this.recordOrVerify(input, true);
+  }
+
   async record(input: StorageRelocationInput): Promise<void> {
+    await this.recordOrVerify(input, false);
+  }
+
+  private async recordOrVerify(input: StorageRelocationInput, requireExisting: boolean): Promise<void> {
     const value = inputSchema.parse(input);
     value.consumers.sort();
     if (
@@ -315,6 +324,7 @@ export class StorageRelocationRegistry {
     });
     const backend = this.receipt(value.operationId);
     const existing = await backend.read();
+    if (requireExisting && !existing) throw new Error('Storage relocation receipt is missing');
     const allocation = this.allocation(value.operationId);
     const allocated = await allocation.read();
     if (allocated) allocationSchema.parse(allocated.state);
