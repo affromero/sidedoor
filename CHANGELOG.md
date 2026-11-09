@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-11-08
+
+### Fixed
+
+- Protect delegated storage and job cleanup with ownership checks and target
+  fencing that preserves shared files and rejects later writes.
+  ([#106](https://github.com/affromero/sidedoor/pull/106), closes [#105](https://github.com/affromero/sidedoor/issues/105))
+
+### Changed
+
+- Update dependencies and development security tooling.
+  ([#97](https://github.com/affromero/sidedoor/pull/97), [#99](https://github.com/affromero/sidedoor/pull/99), [#100](https://github.com/affromero/sidedoor/pull/100), [#101](https://github.com/affromero/sidedoor/pull/101), [#103](https://github.com/affromero/sidedoor/pull/103), [#104](https://github.com/affromero/sidedoor/pull/104))
+
 ## [0.5.7] - 2026-10-21
 
 ### Fixed
