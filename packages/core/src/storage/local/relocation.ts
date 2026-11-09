@@ -298,6 +298,118 @@ export class StorageRelocationRegistry {
     await this.recordOrVerify(input, false);
   }
 
+  /** Verify the complete copy chain ending at an exact, pending consumer retirement. */
+  async verifyRetiredChain(input: {
+    consumer: string;
+    originalAssetId: string;
+    retirementOperationId: string;
+    maxHops: number;
+    expectedContent: z.infer<typeof contentSchema>;
+    requiredOperation: { operationId: string; sourceAssetId: string; destinationAssetId: string };
+  }) {
+    const consumer = identity.parse(input.consumer);
+    let assetId = digest.parse(input.originalAssetId);
+    const maxHops = z.number().int().min(1).max(10_000).parse(input.maxHops);
+    const expectedContent = contentSchema.parse(input.expectedContent);
+    const required = inputSchema
+      .pick({ operationId: true, sourceAssetId: true, destinationAssetId: true })
+      .parse(input.requiredOperation);
+    const retirement = await this.references.readRetirement(
+      z.uuid().parse(input.retirementOperationId),
+      consumer,
+    );
+    if (
+      !retirement ||
+      retirement.status !== 'pending' ||
+      retirement.replacementAssetId !== null ||
+      !retirement.attribution
+    )
+      throw new Error('Storage terminal retirement is missing');
+    const terminal = await this.references.readAsset(retirement.attribution.assetId);
+    if (
+      !terminal ||
+      terminal.asset.consumers.includes(consumer) ||
+      retirement.previousReference !== terminal.asset.prepared.reference ||
+      !isDeepStrictEqual(retirement.attribution.prepared, terminal.asset.prepared)
+    )
+      throw new Error('Storage terminal retirement attribution does not match');
+    if (await this.successor(terminal.asset.id, consumer).read())
+      throw new Error('Storage terminal retirement has a successor');
+    let cursor: string | null = null;
+    do {
+      const page = await this.references.listRetirements(cursor);
+      if (
+        page.retirements.some(
+          (item) =>
+            item.consumer === consumer &&
+            item.attribution?.assetId === terminal.asset.id &&
+            item.replacementAssetId !== null,
+        )
+      )
+        throw new Error('Storage terminal retirement has a replacement');
+      if (page.cursor !== null && cursor !== null && page.cursor <= cursor)
+        throw new Error('Storage retirement cursor did not advance');
+      cursor = page.cursor;
+    } while (cursor !== null);
+    cursor = null;
+    do {
+      const page = await this.references.listAllocations(cursor);
+      for (const allocation of page.allocations) {
+        if (
+          allocation.claims.some(
+            (claim) =>
+              claim.consumer === consumer && claim.previousReference === terminal.asset.prepared.reference,
+          )
+        )
+          throw new Error('Storage terminal retirement has a replacement allocation');
+      }
+      if (page.cursor !== null && cursor !== null && page.cursor <= cursor)
+        throw new Error('Storage allocation cursor did not advance');
+      cursor = page.cursor;
+    } while (cursor !== null);
+    const visited = new Set<string>();
+    let content: z.infer<typeof contentSchema> | null = null;
+    let matched = false;
+    while (assetId !== terminal.asset.id) {
+      if (visited.has(assetId)) throw new Error('Storage relocation chain contains a cycle');
+      if (visited.size >= maxHops)
+        throw new Error('Storage relocation chain exceeds the configured traversal limit');
+      visited.add(assetId);
+      const successor = await this.successor(assetId, consumer).read();
+      if (!successor) throw new Error('Storage relocation successor is missing');
+      const edge = successorSchema.parse(successor.state);
+      const row = await this.receipt(edge.operationId).read();
+      if (!row) throw new Error('Storage relocation receipt is missing');
+      const receipt = receiptSchema.parse(row.state);
+      if (
+        receipt.operationId !== edge.operationId ||
+        receipt.sourceAssetId !== assetId ||
+        !receipt.consumers.includes(consumer)
+      )
+        throw new Error('Storage relocation chain identity does not match');
+      if (!isDeepStrictEqual(expectedContent, receipt.content))
+        throw new Error('Storage relocation chain content changed');
+      await this.verifyExisting({
+        operationId: receipt.operationId,
+        sourceAssetId: receipt.sourceAssetId,
+        destinationAssetId: receipt.destinationAssetId,
+        consumers: receipt.consumers,
+        sourceRead: { assetId: receipt.sourceAssetId, ...receipt.content },
+        destinationRead: { assetId: receipt.destinationAssetId, ...receipt.content },
+      });
+      if (
+        receipt.operationId === required.operationId &&
+        receipt.sourceAssetId === required.sourceAssetId &&
+        receipt.destinationAssetId === required.destinationAssetId
+      )
+        matched = true;
+      content = receipt.content;
+      assetId = receipt.destinationAssetId;
+    }
+    if (!matched || !content) throw new Error('Required storage relocation is not in the retired chain');
+    return { terminalAssetId: terminal.asset.id, content };
+  }
+
   private async recordOrVerify(input: StorageRelocationInput, requireExisting: boolean): Promise<void> {
     const value = inputSchema.parse(input);
     value.consumers.sort();

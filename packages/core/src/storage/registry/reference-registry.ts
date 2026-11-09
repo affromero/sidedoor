@@ -182,6 +182,20 @@ export class StorageReferenceRegistry {
     return structuredClone(allocation);
   }
 
+  /** Discover retained allocation claims even when their asset row has been removed. */
+  async listAllocations(after: string | null = null) {
+    const prefix = `sd-allocation:1:${this.prefix}:`;
+    const rows = await cleanupRows(this.database, this.dialect, prefix, after);
+    const allocations = rows.map((row) => {
+      const allocation = allocationSchema.parse(this.decode(row.state));
+      if (allocation.namespace !== this.namespace || row.id !== `${prefix}${allocation.assetId}`)
+        throw new Error('Storage allocation identity mismatch');
+      prepareStorageReferenceClaims(allocation.claims);
+      return allocation;
+    });
+    return { allocations, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
+  }
+
   /** Exact replacement evidence. Unknown historical ownership stays explicitly unresolved. */
   async readRetirement(operationId: string, consumer: string) {
     z.uuid().parse(operationId);
