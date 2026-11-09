@@ -272,7 +272,6 @@
   "devDependencies": {
     "@types/node": "26.6.6",
     "@types/pg": "^8.23.1",
-    "pg": "^8.23.1",
-    "thesidedoor-core-legacy": "npm:thesidedoor-core@0.5.8"
+    "pg": "^8.23.1"
   }
 }

@@ -154,15 +154,6 @@ explicitly unresolved. The cleanup resolver must handle these dependencies befor
 freezing discovery. An opaque allocation marker prevents erased operation reuse.
 Historical aliases and source objects must remain available while jobs depend on them.
 
-Before using `createConsumerProof()`, upgrade all relocation readers and cleanup
-workers and drain transactions using older versions. Creating a proof upgrades
-its owning receipt; older clients reject that receipt. Do not roll back to an
-older client while upgraded receipts remain. The supplied content must come from
-trusted copy evidence. Proofs remain owned by the complete relocation receipt
-and do not authorize shared deletion. `listAllConsumerProofs()` exposes retained
-proofs for diagnosis, including records whose owner is missing; inconsistent
-membership blocks verification and cleanup.
-
 `StorageCleanupAttribution.inspectPage()` classifies persisted manifest entries
 under the exact preparing job and tombstone. It validates canonical asset,
 retirement and relocation attribution against the historical backend, including
