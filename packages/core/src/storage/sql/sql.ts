@@ -78,7 +78,7 @@ export async function sqlStateRows(
   prefix: string,
   after: string | null,
   limit = 100,
-  cursorKind: 'digest' | 'uuid' | 'compoundDigest' = 'digest',
+  cursorKind: 'digest' | 'uuid' | 'compoundDigest' | 'writeIntent' = 'digest',
 ) {
   z.number().int().min(1).max(100).parse(limit);
   if (!prefix.endsWith(':')) throw new Error('State scan prefix must end with a colon');
@@ -87,7 +87,9 @@ export async function sqlStateRows(
       ? z.uuid()
       : cursorKind === 'compoundDigest'
         ? z.string().regex(/^[a-f0-9]{64}:[a-f0-9]{64}$/)
-        : z.string().regex(/^[a-f0-9]{64}$/);
+        : cursorKind === 'writeIntent'
+          ? z.string().regex(/^[a-f0-9]{64}:[a-f0-9]{64}:[a-f0-9-]{36}$/)
+          : z.string().regex(/^[a-f0-9]{64}$/);
   if (
     after !== null &&
     (!after.startsWith(prefix) || !cursorSchema.safeParse(after.slice(prefix.length)).success)

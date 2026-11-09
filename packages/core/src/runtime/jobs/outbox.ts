@@ -20,6 +20,7 @@ import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../../storage/s
 import { StorageWriteJournal } from '../../storage/execution/write-journal';
 import { StorageCleanupJournal } from '../../storage/cleanup/cleanup-journal';
 import { JobExecutionJournal } from './execution-journal';
+import { JobSnapshot } from './snapshot';
 
 const identity = z.string().min(1).max(200);
 const scope = z.object({ subjectId: identity, generation: z.number().int().nonnegative().safe() }).strict();
@@ -212,6 +213,126 @@ export class JobOutbox {
         fingerprint: error.receipt.fingerprint,
       };
     }
+  }
+
+  /**
+   * The caller must use one Serializable transaction for application ownership
+   * verification, cleanup admission and this operation. The verifier must bind
+   * the complete immutable job and its scopes to the deletion subject.
+   */
+  async eraseDelegated(input: {
+    id: string;
+    fingerprint: string;
+    expectedHandler: string;
+    expectedVersion: number;
+    originalScope: { subjectId: string; generation: number };
+    deletionScope: { subjectId: string; generation: number };
+    cleanupJobId: string;
+    verifyOwnership: (record: OutboxJob) => Promise<boolean>;
+  }): Promise<void> {
+    const { verifyOwnership, ...bindingInput } = input;
+    const value = z
+      .object({
+        id: z.uuid(),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        expectedHandler: identity,
+        expectedVersion: z.number().int().positive().safe(),
+        originalScope: scope,
+        deletionScope: scope,
+        cleanupJobId: z.uuid(),
+      })
+      .strict()
+      .parse(bindingInput);
+    if (value.originalScope.subjectId === value.deletionScope.subjectId)
+      throw new Error('Delegated erasure requires distinct subjects');
+    const binding = sqlStateBackend(this.database, this.dialect, `sd-jde:1:${this.prefix}:${value.id}`);
+    const bindingReceipt = {
+      kind: 'delegated_job_erasure',
+      digest: hash(canonical({ namespace: this.namespace, ...value })),
+    };
+    const previous = await binding.read();
+    if (previous) {
+      if (canonical(z.json().parse(previous.state)) !== canonical(bindingReceipt))
+        throw new Error('Delegated erasure binding mismatch');
+      const receipt = await this.receipt(value.id);
+      if (
+        receipt?.status !== 'erased' ||
+        receipt.fingerprint !== value.fingerprint ||
+        receipt.handler !== value.expectedHandler ||
+        receipt.version !== value.expectedVersion
+      )
+        throw new Error('Delegated erasure receipt mismatch');
+      return;
+    }
+    await new JobExecutionJournal(this.database, this.dialect, this.namespace).requireParentDrained(
+      value.id,
+      value.fingerprint,
+    );
+    const tombstone = await new StorageWriteJournal(this.database, this.dialect, this.namespace).tombstone(
+      value.deletionScope.subjectId,
+    );
+    if (
+      !tombstone ||
+      tombstone.generation !== value.deletionScope.generation ||
+      tombstone.jobId !== value.cleanupJobId
+    )
+      throw new Error('Delegated erasure requires matching deletion admission');
+    const cleanup = await new StorageCleanupJournal(this.database, this.dialect, this.namespace).get(
+      value.cleanupJobId,
+    );
+    if (
+      cleanup.namespace !== this.namespace ||
+      cleanup.subjectId !== value.deletionScope.subjectId ||
+      cleanup.generation !== value.deletionScope.generation ||
+      cleanup.phase !== 'preparing' ||
+      cleanup.retentionPolicy !== 'job-id-snapshots-v1' ||
+      cleanup.inventoryCount === 0 ||
+      cleanup.manifestCount === 0 ||
+      cleanup.unresolvedManifests !== 0
+    )
+      throw new Error('Delegated erasure requires prepared cleanup evidence');
+    const backend = this.backend(value.id);
+    const row = await backend.read();
+    if (!row) throw new Error('Job does not exist');
+    const record = this.parse(row.state, value.id);
+    if (
+      !record.complete ||
+      record.fingerprint !== value.fingerprint ||
+      record.job.handler !== value.expectedHandler ||
+      record.job.version !== value.expectedVersion ||
+      !record.job.scopes.some((item) => canonical(item) === canonical(value.originalScope))
+    )
+      throw new Error('Delegated erasure requires matching completed work');
+    if (!(await verifyOwnership(structuredClone(record))))
+      throw new Error('Delegated erasure ownership was not verified');
+    const snapshot = new JobSnapshot(this.database, this.dialect, this.namespace);
+    let complete = false;
+    for (let page = 0; page < 100 && !complete; page++)
+      complete = (await snapshot.eraseNext(value.id, value.fingerprint)).complete;
+    if (!complete) throw new Error('Delegated erasure snapshot exceeds transaction limit');
+    const erased: ErasedJobReceipt = {
+      kind: 'outbox_erased',
+      namespace: this.namespace,
+      id: value.id,
+      fingerprint: value.fingerprint,
+      handler: record.job.handler,
+      version: record.job.version,
+      scopeDigests: record.job.scopes.map((item) => hash(canonical(item))),
+    };
+    if (!(await backend.compareAndSwap(row.revision, { revision: randomUUID(), state: erased })))
+      throw new Error('Concurrent job erasure; retry the complete transaction');
+    if (
+      !(await binding.compareAndSwap(null, {
+        revision: randomUUID(),
+        state: bindingReceipt,
+      }))
+    )
+      throw new Error('Concurrent delegated erasure; retry the complete transaction');
+    const p = this.dialect === 'postgres' ? '$1' : '?';
+    for (const index of ['pending', 'incomplete'] as const)
+      await this.database.query(`DELETE FROM "SidedoorState" WHERE "id" = ${p} RETURNING "id"`, [
+        this.key(value.id, index),
+      ]);
   }
 
   /** Caller must drain writers and cancel dependent work before erasing retained payloads. */

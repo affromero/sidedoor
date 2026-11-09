@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { validateStorageKey } from '../registry/references';
 import { StorageBackendRegistry } from '../registry/backend-registry';
+import { StorageTargetFence } from './target-fence';
 
 const identity = z.string().min(1).max(200);
 const generation = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -51,6 +52,7 @@ const receiptSchema = z
     digest: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
+export { intentSchema as storageWriteIntentSchema };
 const tombstoneSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -250,6 +252,7 @@ export class StorageWriteJournal {
     const intent = this.validateIntent(prepared);
     await this.assertWritable(intent, currentGeneration);
     if (await this.readReceipt(intent)) return 'already_completed';
+    await new StorageTargetFence(this.database, this.dialect).admit(intent.target);
     const backend = this.backend(this.writeId(intent));
     const previous = await backend.read();
     if (previous) {

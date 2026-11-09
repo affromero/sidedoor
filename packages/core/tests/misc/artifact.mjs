@@ -79,6 +79,56 @@ try {
     '-e',
     `
     import assert from 'node:assert/strict';
+    import { randomUUID } from 'node:crypto';
+    import { DatabaseSync } from 'node:sqlite';
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
+    for (const api of [await import('thesidedoor-core/storage'), require('thesidedoor-core/storage')]) {
+      const db = new DatabaseSync(':memory:');
+      try {
+        db.exec('CREATE TABLE "SidedoorState" (id TEXT PRIMARY KEY, revision TEXT NOT NULL, state TEXT NOT NULL)');
+        const executor = { query: async (sql, values) => db.prepare(sql).all(...values) };
+        const transaction = async operation => {
+          db.exec('BEGIN');
+          try { const value = await operation(); db.exec('COMMIT'); return value; }
+          catch (error) { db.exec('ROLLBACK'); throw error; }
+        };
+        const location = { kind: 'object', endpoint: 'https://storage.example', bucket: 'fixture' };
+        const backend = api.prepareStorageBackend('app', {
+          kind: 'object', location, binding: api.storageBackendBinding(location), publicUrl: 'https://media.example',
+        });
+        const scope = { subjectId: 'course:one', generation: 1 };
+        const target = { backendId: backend.id, binding: backend.binding, key: 'worksheet.pdf' };
+        const reference = api.prepareStorageReference({
+          namespace: 'app', operationId: randomUUID(), reference: 'https://media.example/worksheet.pdf',
+          target, scopes: [scope],
+        });
+        const registry = new api.StorageReferenceRegistry(executor, 'sqlite', 'app');
+        const journal = new api.StorageCleanupJournal(executor, 'sqlite', 'app');
+        const job = api.prepareStorageCleanup({ namespace: 'app', subjectId: 'class:one', generation: 2, retentionPolicy: 'job-id-snapshots-v1' });
+        await transaction(async () => {
+          await new api.StorageBackendRegistry(executor, 'sqlite', 'app').register(backend);
+          await registry.replace({ consumer: 'class:one:worksheet', previousReference: null, next: reference });
+          await journal.createJob(job);
+        });
+        const classifier = new api.StorageCleanupAttribution(executor, 'sqlite', 'app');
+        await transaction(() => classifier.admitDelegatedAsset({
+          jobId: job.id, epoch: job.epoch, subjectId: job.subjectId, generation: job.generation,
+          originalScope: scope, consumer: 'class:one:worksheet', reference: reference.reference,
+          verifyOwnership: async () => true, operationId: randomUUID(),
+        }));
+        const intent = api.prepareStorageWrite({ namespace: 'app', ...scope, target });
+        await assert.rejects(transaction(() => new api.StorageWriteJournal(executor, 'sqlite', 'app').begin(intent, 1)), /target is retired/);
+      } finally { db.close(); }
+    }
+  `,
+  ]);
+  process.stdout.write('Installed ESM/CJS delegated cleanup fences future writes.\n');
+  run(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `
+    import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';
     const require = createRequire(import.meta.url);
     for (const api of [await import('thesidedoor-core/providers/transport'), require('thesidedoor-core/providers/transport')]) {
