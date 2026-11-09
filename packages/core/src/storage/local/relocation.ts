@@ -298,6 +298,178 @@ export class StorageRelocationRegistry {
     await this.recordOrVerify(input, false);
   }
 
+  /** Verify retired copy suffixes once within the caller's Serializable transaction.
+   * Each required operation must be the first edge from its request's original asset.
+   */
+  async verifyRetiredBatch(
+    inputs: readonly {
+      consumer: string;
+      originalAssetId: string;
+      maxHops: number;
+      expectedContent: z.infer<typeof contentSchema>;
+      requiredOperation: { operationId: string; sourceAssetId: string; destinationAssetId: string };
+    }[],
+  ) {
+    if (inputs.length === 0) return [];
+    type Receipt = z.infer<typeof receiptSchema>;
+    type Suffix = {
+      terminalAssetId: string;
+      hops: number;
+      first: Receipt | null;
+      content: z.infer<typeof contentSchema> | null;
+    };
+    const suffixes = new Map<string, Suffix>();
+    const verifiedReceipts = new Map<string, Receipt>();
+    const terminals = new Map<
+      string,
+      {
+        consumer: string;
+        assetId: string;
+        reference: string;
+        prepared: Awaited<ReturnType<StorageReferenceRegistry['readAsset']>>;
+      }
+    >();
+    const key = (consumer: string, assetId: string) => JSON.stringify([consumer, assetId]);
+    const results: { terminalAssetId: string; content: z.infer<typeof contentSchema> }[] = [];
+    for (const input of inputs) {
+      const consumer = identity.parse(input.consumer);
+      const original = digest.parse(input.originalAssetId);
+      const maxHops = z.number().int().min(1).max(10_000).parse(input.maxHops);
+      const expected = contentSchema.parse(input.expectedContent);
+      const required = inputSchema
+        .pick({ operationId: true, sourceAssetId: true, destinationAssetId: true })
+        .parse(input.requiredOperation);
+      if (required.sourceAssetId !== original)
+        throw new Error('Required storage relocation must start at the source');
+      const path: Receipt[] = [];
+      const visited = new Set<string>();
+      let current = original;
+      let tail: Suffix | undefined;
+      for (;;) {
+        if (visited.has(current)) throw new Error('Storage relocation chain contains a cycle');
+        visited.add(current);
+        tail = suffixes.get(key(consumer, current));
+        if (tail) break;
+        const successor = await this.successor(current, consumer).read();
+        if (!successor) {
+          const terminal = await this.references.readAsset(current);
+          if (!terminal || terminal.asset.consumers.includes(consumer))
+            throw new Error('Storage terminal retirement attribution does not match');
+          terminals.set(key(consumer, current), {
+            consumer,
+            assetId: current,
+            reference: terminal.asset.prepared.reference,
+            prepared: terminal,
+          });
+          tail = { terminalAssetId: current, hops: 0, first: null, content: null };
+          suffixes.set(key(consumer, current), tail);
+          break;
+        }
+        if (path.length >= maxHops)
+          throw new Error('Storage relocation chain exceeds the configured traversal limit');
+        const edge = successorSchema.parse(successor.state);
+        const row = await this.receipt(edge.operationId).read();
+        if (!row) throw new Error('Storage relocation receipt is missing');
+        const receipt = receiptSchema.parse(row.state);
+        if (
+          receipt.operationId !== edge.operationId ||
+          receipt.sourceAssetId !== current ||
+          !receipt.consumers.includes(consumer)
+        )
+          throw new Error('Storage relocation chain identity does not match');
+        const verified = verifiedReceipts.get(receipt.operationId);
+        if (verified && !isDeepStrictEqual(verified, receipt))
+          throw new Error('Storage relocation receipt changed');
+        if (!verified) {
+          await this.verifyExisting({
+            operationId: receipt.operationId,
+            sourceAssetId: receipt.sourceAssetId,
+            destinationAssetId: receipt.destinationAssetId,
+            consumers: receipt.consumers,
+            sourceRead: { assetId: receipt.sourceAssetId, ...receipt.content },
+            destinationRead: { assetId: receipt.destinationAssetId, ...receipt.content },
+          });
+          verifiedReceipts.set(receipt.operationId, receipt);
+        }
+        path.push(receipt);
+        current = receipt.destinationAssetId;
+      }
+      for (const receipt of path.reverse()) {
+        if (tail.content && !isDeepStrictEqual(tail.content, receipt.content))
+          throw new Error('Storage relocation chain content changed');
+        tail = {
+          terminalAssetId: tail.terminalAssetId,
+          hops: tail.hops + 1,
+          first: receipt,
+          content: receipt.content,
+        };
+        suffixes.set(key(consumer, receipt.sourceAssetId), tail);
+      }
+      if (tail.hops > maxHops)
+        throw new Error('Storage relocation chain exceeds the configured traversal limit');
+      if (
+        !tail.first ||
+        !tail.content ||
+        !isDeepStrictEqual(tail.content, expected) ||
+        tail.first.operationId !== required.operationId ||
+        tail.first.sourceAssetId !== required.sourceAssetId ||
+        tail.first.destinationAssetId !== required.destinationAssetId
+      )
+        throw new Error('Required storage relocation evidence does not match');
+      results.push({ terminalAssetId: tail.terminalAssetId, content: tail.content });
+    }
+    const terminalReferences = new Map<string, string>();
+    for (const [terminalKey, terminal] of terminals) {
+      const referenceKey = key(terminal.consumer, terminal.reference);
+      if (terminalReferences.has(referenceKey)) throw new Error('Storage terminal reference is ambiguous');
+      terminalReferences.set(referenceKey, terminalKey);
+    }
+    const counts = new Map<string, number>();
+    let cursor: string | null = null;
+    do {
+      const page = await this.references.listRetirements(cursor);
+      for (const retirement of page.retirements) {
+        const terminalKey =
+          retirement.attribution && key(retirement.consumer, retirement.attribution.assetId);
+        const terminal = terminalKey && terminals.get(terminalKey);
+        if (!terminal || !terminalKey) {
+          if (terminalReferences.has(key(retirement.consumer, retirement.previousReference)))
+            throw new Error('Storage terminal retirement attribution does not match');
+          continue;
+        }
+        if (retirement.replacementAssetId !== null)
+          throw new Error('Storage terminal retirement has a replacement');
+        if (
+          retirement.status !== 'pending' ||
+          retirement.previousReference !== terminal.reference ||
+          !terminal.prepared ||
+          !retirement.attribution ||
+          !isDeepStrictEqual(retirement.attribution.prepared, terminal.prepared.asset.prepared)
+        )
+          throw new Error('Storage terminal retirement attribution does not match');
+        counts.set(terminalKey, (counts.get(terminalKey) ?? 0) + 1);
+      }
+      if (page.cursor !== null && cursor !== null && page.cursor <= cursor)
+        throw new Error('Storage retirement cursor did not advance');
+      cursor = page.cursor;
+    } while (cursor !== null);
+    for (const terminalKey of terminals.keys())
+      if (counts.get(terminalKey) !== 1)
+        throw new Error('Storage terminal retirement is missing or ambiguous');
+    cursor = null;
+    do {
+      const page = await this.references.listAllocations(cursor);
+      for (const allocation of page.allocations)
+        for (const claim of allocation.claims)
+          if (claim.previousReference && terminalReferences.has(key(claim.consumer, claim.previousReference)))
+            throw new Error('Storage terminal retirement has a replacement allocation');
+      if (page.cursor !== null && cursor !== null && page.cursor <= cursor)
+        throw new Error('Storage allocation cursor did not advance');
+      cursor = page.cursor;
+    } while (cursor !== null);
+    return results;
+  }
+
   /** Verify the complete copy chain ending at an exact, pending consumer retirement. */
   async verifyRetiredChain(input: {
     consumer: string;
