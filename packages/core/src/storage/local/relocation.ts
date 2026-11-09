@@ -7,6 +7,7 @@ import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { cleanupRows } from '../cleanup/cleanup-collectors';
 import { StorageCleanupJournal } from '../cleanup/cleanup-journal';
 import { CleanupManifests, prepareStorageManifestPages } from '../cleanup/cleanup-manifests';
+import { RelocationConsumerProofs } from './relocation/consumer-proofs';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const identity = z.string().min(1).max(200);
@@ -29,7 +30,7 @@ const inputSchema = z
   .strict();
 const receiptSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     kind: z.literal('storage_relocation'),
     namespace: identity,
     operationId: z.uuid(),
@@ -38,8 +39,23 @@ const receiptSchema = z
     consumers: z.array(identity).min(1).max(100),
     content: contentSchema,
     scopes: z.array(scopeSchema).min(1).max(2000),
+    proofConsumers: z.array(identity).min(1).max(100).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((receipt, context) => {
+    const proofs = receipt.proofConsumers;
+    if ((receipt.schemaVersion === 1 && proofs !== undefined) || (receipt.schemaVersion === 2 && !proofs)) {
+      context.addIssue({ code: 'custom', message: 'Storage relocation proof version is invalid' });
+      return;
+    }
+    if (
+      proofs &&
+      (new Set(proofs).size !== proofs.length ||
+        !isDeepStrictEqual(proofs, [...proofs].sort()) ||
+        proofs.some((consumer) => !receipt.consumers.includes(consumer)))
+    )
+      context.addIssue({ code: 'custom', message: 'Storage relocation proof consumers are invalid' });
+  });
 const successorSchema = z.object({ operationId: z.uuid() }).strict();
 const allocationSchema = z
   .object({ schemaVersion: z.literal(1), kind: z.literal('storage_relocation_allocation') })
@@ -72,6 +88,7 @@ export class StorageRelocationRegistry {
   private readonly prefix: string;
   private readonly references: StorageReferenceRegistry;
   private readonly writes: StorageWriteJournal;
+  private readonly proofs: RelocationConsumerProofs;
   constructor(
     private readonly database: SqlExecutor,
     private readonly dialect: 'postgres' | 'sqlite',
@@ -80,6 +97,7 @@ export class StorageRelocationRegistry {
     this.prefix = hash(identity.parse(namespace));
     this.references = new StorageReferenceRegistry(database, dialect, namespace);
     this.writes = new StorageWriteJournal(database, dialect, namespace);
+    this.proofs = new RelocationConsumerProofs(database, dialect, namespace);
   }
   private receipt(operationId: string) {
     return sqlStateBackend(
@@ -101,6 +119,14 @@ export class StorageRelocationRegistry {
       this.dialect,
       `sd-rels:1:${this.prefix}:${hash(JSON.stringify([assetId, consumer]))}`,
     );
+  }
+  /** Discover proofs by operation even if the owning receipt is unavailable. */
+  async listConsumerProofs(operationId: string, after: string | null = null) {
+    return this.proofs.list(operationId, after);
+  }
+  /** Discover proof records across operations, including orphaned records. */
+  async listAllConsumerProofs(after: string | null = null) {
+    return this.proofs.listAll(after);
   }
   private scopePrefix(subjectId: string) {
     return `sd-rel-scope:1:${this.prefix}:${hash(identity.parse(subjectId))}:`;
@@ -157,6 +183,7 @@ export class StorageRelocationRegistry {
       const allocation = await this.allocation(receipt.operationId).read();
       if (!allocation) throw new Error('Storage relocation allocation evidence is missing');
       allocationSchema.parse(allocation.state);
+      await this.proofs.requireMembership(receipt);
       const entries = [];
       for (const [role, assetId] of [
         ['source', receipt.sourceAssetId],
@@ -195,6 +222,15 @@ export class StorageRelocationRegistry {
         await this.remove(id, row.revision);
       }
       for (const consumer of receipt.consumers) {
+        const proofId = this.proofs.id(receipt.operationId, consumer);
+        const proof = await this.proofs.backend(receipt.operationId, consumer).read();
+        if ((receipt.proofConsumers?.includes(consumer) ?? false) !== (proof !== null))
+          throw new Error('Storage relocation consumer proof membership does not match during erasure');
+        if (proof) {
+          if (!isDeepStrictEqual(this.proofs.parse(proof.state), this.proofs.value(receipt, consumer)))
+            throw new Error('Storage relocation consumer proof does not match during erasure');
+          await this.remove(proofId, proof.revision);
+        }
         const row = await this.successor(receipt.sourceAssetId, consumer).read();
         if (row && successorSchema.parse(row.state).operationId === receipt.operationId)
           await this.remove(
@@ -292,6 +328,90 @@ export class StorageRelocationRegistry {
   /** Verify an existing relocation without creating or repairing any evidence. */
   async verifyExisting(input: StorageRelocationInput): Promise<void> {
     await this.recordOrVerify(input, true);
+  }
+
+  private async verifiedConsumerReceipt(operationId: string, consumer: string) {
+    const row = await this.receipt(operationId).read();
+    if (!row) throw new Error('Storage relocation receipt is missing');
+    const receipt = receiptSchema.parse(row.state);
+    if (receipt.operationId !== operationId || !receipt.consumers.includes(consumer))
+      throw new Error('Storage relocation consumer is not in the receipt');
+    await this.verifyExisting({
+      operationId: receipt.operationId,
+      sourceAssetId: receipt.sourceAssetId,
+      destinationAssetId: receipt.destinationAssetId,
+      consumers: receipt.consumers,
+      sourceRead: { assetId: receipt.sourceAssetId, ...receipt.content },
+      destinationRead: { assetId: receipt.destinationAssetId, ...receipt.content },
+    });
+    return receipt;
+  }
+
+  /** Create an optional consumer-specific proof bound to existing complete evidence. */
+  async createConsumerProof(input: {
+    operationId: string;
+    consumer: string;
+    content: z.infer<typeof contentSchema>;
+  }): Promise<void> {
+    const value = z
+      .object({ operationId: z.uuid(), consumer: identity, content: contentSchema })
+      .strict()
+      .parse(input);
+    const receipt = await this.verifiedConsumerReceipt(value.operationId, value.consumer);
+    if (!isDeepStrictEqual(receipt.content, value.content))
+      throw new Error('Storage relocation content does not match trusted evidence');
+    const proof = this.proofs.value(receipt, value.consumer);
+    const backend = this.proofs.backend(value.operationId, value.consumer);
+    const existing = await backend.read();
+    if (existing) {
+      if (!isDeepStrictEqual(this.proofs.parse(existing.state), proof))
+        throw new Error('Storage relocation consumer proof conflicts with existing evidence');
+      return;
+    }
+    const ownerBackend = this.receipt(value.operationId);
+    const owner = await ownerBackend.read();
+    if (!owner || !isDeepStrictEqual(receiptSchema.parse(owner.state), receipt))
+      throw new Error('Storage relocation receipt changed concurrently');
+    const updated = receiptSchema.parse({
+      ...receipt,
+      schemaVersion: 2,
+      proofConsumers: [...(receipt.proofConsumers ?? []), value.consumer].sort(),
+    });
+    if (!(await ownerBackend.compareAndSwap(owner.revision, { revision: randomUUID(), state: updated })))
+      throw new Error('Storage relocation receipt changed concurrently');
+    if (!(await backend.compareAndSwap(null, { revision: randomUUID(), state: proof })))
+      throw new Error('Storage relocation consumer proof changed concurrently');
+  }
+
+  /** Verify a consumer proof and its complete v1 owner without modifying either record. */
+  async verifyConsumerProof(input: {
+    operationId: string;
+    consumer: string;
+    sourceAssetId: string;
+    destinationAssetId: string;
+    content: z.infer<typeof contentSchema>;
+  }): Promise<void> {
+    const value = z
+      .object({
+        operationId: z.uuid(),
+        consumer: identity,
+        sourceAssetId: digest,
+        destinationAssetId: digest,
+        content: contentSchema,
+      })
+      .strict()
+      .parse(input);
+    const row = await this.proofs.backend(value.operationId, value.consumer).read();
+    if (!row) throw new Error('Storage relocation consumer proof is missing');
+    const proof = this.proofs.parse(row.state);
+    const receipt = await this.verifiedConsumerReceipt(value.operationId, value.consumer);
+    if (
+      !isDeepStrictEqual(proof, this.proofs.value(receipt, value.consumer)) ||
+      proof.sourceAssetId !== value.sourceAssetId ||
+      proof.destinationAssetId !== value.destinationAssetId ||
+      !isDeepStrictEqual(proof.content, value.content)
+    )
+      throw new Error('Storage relocation consumer proof does not match');
   }
 
   async record(input: StorageRelocationInput): Promise<void> {
@@ -649,8 +769,11 @@ export class StorageRelocationRegistry {
     const original = await this.references.readAsset(value.sourceAssetId);
     const replacement = await this.references.readAsset(value.destinationAssetId);
     if (!original || !replacement) throw new Error('Storage relocation assets are missing');
+    const backend = this.receipt(value.operationId);
+    const existing = await backend.read();
+    const existingReceipt = existing ? receiptSchema.parse(existing.state) : null;
     const receipt = receiptSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: existingReceipt?.schemaVersion ?? 1,
       kind: 'storage_relocation',
       namespace: this.namespace,
       operationId: value.operationId,
@@ -659,16 +782,15 @@ export class StorageRelocationRegistry {
       consumers: value.consumers,
       content: { sha256: value.sourceRead.sha256, bytes: value.sourceRead.bytes },
       scopes: combinedScopes([...original.asset.prepared.scopes, ...replacement.asset.prepared.scopes]),
+      ...(existingReceipt?.proofConsumers ? { proofConsumers: existingReceipt.proofConsumers } : {}),
     });
-    const backend = this.receipt(value.operationId);
-    const existing = await backend.read();
     if (requireExisting && !existing) throw new Error('Storage relocation receipt is missing');
     const allocation = this.allocation(value.operationId);
     const allocated = await allocation.read();
     if (allocated) allocationSchema.parse(allocated.state);
     if (existing && !allocated) throw new Error('Storage relocation allocation evidence is missing');
     if (allocated && !existing) throw new Error('Storage relocation operation was already allocated');
-    if (existing && !isDeepStrictEqual(receiptSchema.parse(existing.state), receipt))
+    if (existingReceipt && !isDeepStrictEqual(existingReceipt, receipt))
       throw new Error('Storage relocation receipt already records different evidence');
     const { source, destination } = await this.validate(receipt);
     if (
@@ -677,6 +799,7 @@ export class StorageRelocationRegistry {
         !isDeepStrictEqual([...destination.asset.consumers].sort(), receipt.consumers))
     )
       throw new Error('Storage relocation must transfer the complete captured consumer set');
+    await this.proofs.requireMembership(receipt);
     for (const consumer of receipt.consumers) {
       const successor = this.successor(receipt.sourceAssetId, consumer);
       const row = await successor.read();
@@ -768,7 +891,14 @@ export class StorageRelocationRegistry {
         !receipt.consumers.includes(consumer)
       )
         throw new Error('Storage relocation chain identity does not match');
-      await this.validate(receipt);
+      await this.verifyExisting({
+        operationId: receipt.operationId,
+        sourceAssetId: receipt.sourceAssetId,
+        destinationAssetId: receipt.destinationAssetId,
+        consumers: receipt.consumers,
+        sourceRead: { assetId: receipt.sourceAssetId, ...receipt.content },
+        destinationRead: { assetId: receipt.destinationAssetId, ...receipt.content },
+      });
       if (
         requiredOperation &&
         receipt.operationId === requiredOperation.operationId &&

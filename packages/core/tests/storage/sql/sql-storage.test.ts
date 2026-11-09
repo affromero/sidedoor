@@ -1,6 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sqlStateBackend } from '../../../src/storage/sql/sql';
+import { sqlStateBackend, sqlStateRows } from '../../../src/storage/sql/sql';
 import { OptimisticStateStore } from '../../../src/storage/sql/optimistic';
 
 const databases: DatabaseSync[] = [];
@@ -22,6 +22,26 @@ afterEach(() => {
 });
 
 describe('SQL state persistence', () => {
+  it('pages UUID and digest keys while rejecting foreign or malformed cursors', async () => {
+    const { database } = fixture();
+    const prefix = 'proof:test:';
+    const first = `${prefix}00000000-0000-4000-8000-000000000001:${'a'.repeat(64)}`;
+    const second = `${prefix}00000000-0000-4000-8000-000000000002:${'b'.repeat(64)}`;
+    for (const id of [first, second])
+      await sqlStateBackend(database, 'sqlite', id).compareAndSwap(null, { revision: 'one', state: {} });
+    expect(
+      (await sqlStateRows(database, 'sqlite', prefix, null, 1, 'uuidDigest')).map((row) => row.id),
+    ).toEqual([first]);
+    expect(
+      (await sqlStateRows(database, 'sqlite', prefix, first, 1, 'uuidDigest')).map((row) => row.id),
+    ).toEqual([second]);
+    await expect(sqlStateRows(database, 'sqlite', prefix, `other:${first}`, 1, 'uuidDigest')).rejects.toThrow(
+      'cursor',
+    );
+    await expect(
+      sqlStateRows(database, 'sqlite', prefix, `${prefix}invalid:${'a'.repeat(64)}`, 1, 'uuidDigest'),
+    ).rejects.toThrow('cursor');
+  });
   it('initializes once and rejects stale writers without changing saved state', async () => {
     const { backend } = fixture();
     expect(await backend.read()).toBeNull();
