@@ -6,6 +6,7 @@ import { cleanupRows } from '../cleanup/cleanup-collectors';
 import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { normalizeStorageReference, validateStorageKey } from './references';
 import { StorageTargetFence } from '../execution/target-fence';
+import { StorageWriteJournal } from '../execution/write-journal';
 
 const identity = z.string().min(1).max(200);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -325,6 +326,21 @@ export class StorageReferenceRegistry {
     const replacements = prepareStorageReferenceClaims(input.consumers);
     const consumers = replacements.map((value) => value.consumer).sort();
     const next = this.validate(input.next);
+    const writes = new StorageWriteJournal(this.database, this.dialect, this.namespace);
+    for (const scope of next.scopes)
+      if (await writes.tombstone(scope.subjectId)) throw new Error('Storage reference scope is being erased');
+    const previousReferences = new Set(
+      replacements.flatMap((replacement) =>
+        replacement.previousReference ? [replacement.previousReference] : [],
+      ),
+    );
+    for (const reference of previousReferences) {
+      const previous = await this.attributed(reference);
+      if (!previous) continue;
+      for (const scope of previous.asset.prepared.scopes)
+        if (await writes.tombstone(scope.subjectId))
+          throw new Error('Previous storage scope is being erased');
+    }
     await this.validateBackend(next);
     await new StorageTargetFence(this.database, this.dialect).admit(next.target);
     const id = assetId(next);

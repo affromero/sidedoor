@@ -29,7 +29,7 @@ const inputSchema = z
   .strict();
 const receiptSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     kind: z.literal('storage_relocation'),
     namespace: identity,
     operationId: z.uuid(),
@@ -113,14 +113,33 @@ export class StorageRelocationRegistry {
     );
     if (rows.length !== 1) throw new Error('Storage relocation changed during erasure');
   }
-  /** Retain cleanup dependencies and erase one bounded page in the caller's Serializable transaction. */
+  /**
+   * Retain dependencies and erase one bounded page in the caller's Serializable
+   * transaction. For projected receipts, verifyProjectedErasure must establish
+   * from authoritative records in this same transaction that every consumer,
+   * dependent lineage and scope may lose the receipt without harming a survivor,
+   * and that cleanup has authority over every target and all of its owners.
+   * Endpoint checks do not establish that downstream dependencies are absent.
+   * The callback must only read state and perform no external I/O. Roll back the
+   * entire transaction if verification or any subsequent write fails.
+   */
   async eraseForSubject(input: {
     subjectId: string;
     generation: number;
     jobId: string;
     epoch: number;
     after?: string | null;
+    verifyProjectedErasure?: (input: {
+      operationId: string;
+      subjectId: string;
+      generation: number;
+      sourceAssetId: string;
+      destinationAssetId: string;
+      consumers: readonly string[];
+      scopes: readonly z.infer<typeof scopeSchema>[];
+    }) => Promise<boolean>;
   }) {
+    const { verifyProjectedErasure, ...candidate } = input;
     const value = z
       .object({
         subjectId: identity,
@@ -130,7 +149,7 @@ export class StorageRelocationRegistry {
         after: z.string().nullable().optional(),
       })
       .strict()
-      .parse(input);
+      .parse(candidate);
     const journal = new StorageCleanupJournal(this.database, this.dialect, this.namespace);
     const job = await journal.get(value.jobId);
     const tombstone = await this.writes.tombstone(value.subjectId);
@@ -154,6 +173,40 @@ export class StorageRelocationRegistry {
         )
       )
         continue;
+      if (
+        receipt.schemaVersion === 2 &&
+        (typeof verifyProjectedErasure !== 'function' ||
+          (await verifyProjectedErasure({
+            operationId: receipt.operationId,
+            subjectId: value.subjectId,
+            generation: value.generation,
+            sourceAssetId: receipt.sourceAssetId,
+            destinationAssetId: receipt.destinationAssetId,
+            consumers: [...receipt.consumers],
+            scopes: structuredClone(receipt.scopes),
+          })) !== true)
+      )
+        throw new Error('Projected relocation erasure ownership was not verified');
+      if (receipt.schemaVersion === 2) {
+        const source = await this.references.readAsset(receipt.sourceAssetId);
+        const destination = await this.references.readAsset(receipt.destinationAssetId);
+        if (
+          [source, destination].some(
+            (item) =>
+              item &&
+              !item.asset.prepared.scopes.some(
+                (scope) => scope.subjectId === value.subjectId && scope.generation === value.generation,
+              ),
+          )
+        )
+          throw new Error('Projected relocation endpoint belongs to another scope');
+        if (
+          [source, destination].some((item) =>
+            item?.asset.consumers.some((consumer) => receipt.consumers.includes(consumer)),
+          )
+        )
+          throw new Error('Projected relocation still has live consumers');
+      }
       const allocation = await this.allocation(receipt.operationId).read();
       if (!allocation) throw new Error('Storage relocation allocation evidence is missing');
       allocationSchema.parse(allocation.state);
@@ -649,8 +702,11 @@ export class StorageRelocationRegistry {
     const original = await this.references.readAsset(value.sourceAssetId);
     const replacement = await this.references.readAsset(value.destinationAssetId);
     if (!original || !replacement) throw new Error('Storage relocation assets are missing');
+    const backend = this.receipt(value.operationId);
+    const existing = await backend.read();
+    const priorReceipt = existing ? receiptSchema.parse(existing.state) : null;
     const receipt = receiptSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: priorReceipt?.schemaVersion ?? 1,
       kind: 'storage_relocation',
       namespace: this.namespace,
       operationId: value.operationId,
@@ -660,15 +716,13 @@ export class StorageRelocationRegistry {
       content: { sha256: value.sourceRead.sha256, bytes: value.sourceRead.bytes },
       scopes: combinedScopes([...original.asset.prepared.scopes, ...replacement.asset.prepared.scopes]),
     });
-    const backend = this.receipt(value.operationId);
-    const existing = await backend.read();
     if (requireExisting && !existing) throw new Error('Storage relocation receipt is missing');
     const allocation = this.allocation(value.operationId);
     const allocated = await allocation.read();
     if (allocated) allocationSchema.parse(allocated.state);
     if (existing && !allocated) throw new Error('Storage relocation allocation evidence is missing');
     if (allocated && !existing) throw new Error('Storage relocation operation was already allocated');
-    if (existing && !isDeepStrictEqual(receiptSchema.parse(existing.state), receipt))
+    if (priorReceipt && !isDeepStrictEqual(priorReceipt, receipt))
       throw new Error('Storage relocation receipt already records different evidence');
     const { source, destination } = await this.validate(receipt);
     if (

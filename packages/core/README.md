@@ -154,6 +154,21 @@ explicitly unresolved. The cleanup resolver must handle these dependencies befor
 freezing discovery. An opaque allocation marker prevents erased operation reuse.
 Historical aliases and source objects must remain available while jobs depend on them.
 
+Projected relocation receipts use schema version 2. Upgrade all relocation readers
+and cleanup workers, and drain older transactions before writing them. Older
+clients reject version 2. To erase a projected receipt, `eraseForSubject()`
+requires an application callback that verifies every consumer, downstream
+lineage and owning scope against authoritative records in the same Serializable
+transaction. It also rejects receipts whose endpoint assets retain a listed
+consumer or whose known endpoints lack the cleanup subject's scope. The callback
+must verify authority over the physical targets and all of their owners. The
+endpoint check does not replace the application's downstream verification. All
+writers that create references or lineage dependencies must
+check the owning scopes' tombstones in their transaction and validate the
+referenced evidence. `StorageReferenceRegistry.replaceMany()` rejects tombstoned
+scopes in both the new and any attributed previous references. Roll back the
+entire transaction if any verification or write fails.
+
 `StorageCleanupAttribution.inspectPage()` classifies persisted manifest entries
 under the exact preparing job and tombstone. It validates canonical asset,
 retirement and relocation attribution against the historical backend, including

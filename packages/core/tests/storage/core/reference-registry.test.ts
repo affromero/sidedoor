@@ -12,6 +12,7 @@ import {
 } from '../../../src/storage/registry/backend-registry';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
 import { StorageTargetFence } from '../../../src/storage/execution/target-fence';
+import { StorageWriteJournal, prepareStorageTombstone } from '../../../src/storage/execution/write-journal';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -67,6 +68,76 @@ async function fixture() {
 }
 
 describe('durable storage reference attribution', () => {
+  it('does not allocate or replay references after an owning scope is tombstoned', async () => {
+    const { database, executor, registry, prepare, transaction } = await fixture();
+    const existing = prepare();
+    await transaction(() =>
+      registry.replace({ consumer: 'owner:avatar', previousReference: null, next: existing }),
+    );
+    await transaction(() =>
+      new StorageWriteJournal(executor, 'sqlite', 'app').forbidWrites(
+        prepareStorageTombstone({
+          namespace: 'app',
+          subjectId: 'profile:owner',
+          generation: 1,
+          jobId: randomUUID(),
+        }),
+      ),
+    );
+    const before = database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all();
+    await expect(
+      transaction(() =>
+        registry.replace({ consumer: 'owner:avatar', previousReference: null, next: existing }),
+      ),
+    ).rejects.toThrow('scope is being erased');
+    const next = prepareStorageReference({
+      ...prepare(),
+      scopes: [
+        { subjectId: 'profile:other', generation: 1 },
+        { subjectId: 'profile:owner', generation: 2 },
+      ],
+    });
+    await expect(
+      transaction(() => registry.replace({ consumer: 'owner:avatar', previousReference: null, next })),
+    ).rejects.toThrow('scope is being erased');
+    expect(database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all()).toEqual(
+      before,
+    );
+    expect(await registry.readReference(next.reference)).toBeNull();
+  });
+
+  it('does not create a replacement dependent on a tombstoned previous scope', async () => {
+    const { database, executor, registry, prepare, transaction } = await fixture();
+    const previous = prepare();
+    await transaction(() =>
+      registry.replace({ consumer: 'owner:avatar', previousReference: null, next: previous }),
+    );
+    await transaction(() =>
+      new StorageWriteJournal(executor, 'sqlite', 'app').forbidWrites(
+        prepareStorageTombstone({
+          namespace: 'app',
+          subjectId: 'profile:owner',
+          generation: 1,
+          jobId: randomUUID(),
+        }),
+      ),
+    );
+    const next = prepareStorageReference({
+      ...prepare(),
+      scopes: [{ subjectId: 'profile:other', generation: 1 }],
+    });
+    const before = database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all();
+    await expect(
+      transaction(() =>
+        registry.replace({ consumer: 'owner:avatar', previousReference: previous.reference, next }),
+      ),
+    ).rejects.toThrow('Previous storage scope is being erased');
+    expect(database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all()).toEqual(
+      before,
+    );
+    expect(await registry.readReference(next.reference)).toBeNull();
+  });
+
   it('does not publish a reference to a retired physical target', async () => {
     const { executor, registry, prepare, transaction } = await fixture();
     const next = prepare();
