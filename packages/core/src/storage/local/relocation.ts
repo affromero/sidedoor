@@ -410,6 +410,60 @@ export class StorageRelocationRegistry {
     return { terminalAssetId: terminal.asset.id, content };
   }
 
+  /** Locate a terminal retirement, then verify the full chain against trusted copy evidence. */
+  async findRetiredChain(input: {
+    consumer: string;
+    originalAssetId: string;
+    maxHops: number;
+    expectedContent: z.infer<typeof contentSchema>;
+    requiredOperation: { operationId: string; sourceAssetId: string; destinationAssetId: string };
+  }) {
+    const consumer = identity.parse(input.consumer);
+    let assetId = digest.parse(input.originalAssetId);
+    const maxHops = z.number().int().min(1).max(10_000).parse(input.maxHops);
+    const visited = new Set<string>();
+    for (;;) {
+      if (visited.has(assetId)) throw new Error('Storage relocation chain contains a cycle');
+      visited.add(assetId);
+      const successor = await this.successor(assetId, consumer).read();
+      if (!successor) break;
+      if (visited.size > maxHops)
+        throw new Error('Storage relocation chain exceeds the configured traversal limit');
+      const edge = successorSchema.parse(successor.state);
+      const row = await this.receipt(edge.operationId).read();
+      if (!row) throw new Error('Storage relocation receipt is missing');
+      const receipt = receiptSchema.parse(row.state);
+      if (
+        receipt.operationId !== edge.operationId ||
+        receipt.sourceAssetId !== assetId ||
+        !receipt.consumers.includes(consumer)
+      )
+        throw new Error('Storage relocation chain identity does not match');
+      assetId = receipt.destinationAssetId;
+    }
+    let cursor: string | null = null;
+    let operationId: string | null = null;
+    do {
+      const page = await this.references.listRetirements(cursor);
+      for (const retirement of page.retirements) {
+        if (
+          retirement.consumer !== consumer ||
+          retirement.status !== 'pending' ||
+          retirement.replacementAssetId !== null ||
+          retirement.attribution?.assetId !== assetId
+        )
+          continue;
+        if (operationId !== null) throw new Error('Storage terminal retirement is ambiguous');
+        operationId = retirement.operationId;
+      }
+      if (page.cursor !== null && cursor !== null && page.cursor <= cursor)
+        throw new Error('Storage retirement cursor did not advance');
+      cursor = page.cursor;
+    } while (cursor !== null);
+    if (operationId === null) throw new Error('Storage terminal retirement is missing');
+    return this.verifyRetiredChain({ ...input, retirementOperationId: operationId });
+  }
+
   private async recordOrVerify(input: StorageRelocationInput, requireExisting: boolean): Promise<void> {
     const value = inputSchema.parse(input);
     value.consumers.sort();

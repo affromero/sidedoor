@@ -117,6 +117,14 @@ describe('retired relocation chain', () => {
   });
   it('verifies each copy and the final retirement without changing evidence', async () => {
     const { database, transaction, pair, asset, proof, relocations, registry } = fixture();
+    const earlier = await asset();
+    await transaction(() =>
+      registry.retire({
+        operationId: randomUUID(),
+        consumer: 'owner:avatar',
+        previousReference: earlier.prepared.reference,
+      }),
+    );
     const { source, destination, evidence } = await pair();
     await transaction(() => relocations.record(evidence));
     const last = await asset(undefined, destination.prepared.reference);
@@ -160,6 +168,10 @@ describe('retired relocation chain', () => {
     const rows = () => database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all();
     const before = rows();
     await expect(transaction(() => relocations.verifyRetiredChain(input))).resolves.toEqual({
+      terminalAssetId: last.id,
+      content: { sha256: evidence.sourceRead.sha256, bytes: evidence.sourceRead.bytes },
+    });
+    await expect(transaction(() => relocations.findRetiredChain(input))).resolves.toEqual({
       terminalAssetId: last.id,
       content: { sha256: evidence.sourceRead.sha256, bytes: evidence.sourceRead.bytes },
     });
