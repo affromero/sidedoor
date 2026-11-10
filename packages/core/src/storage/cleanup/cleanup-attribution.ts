@@ -245,6 +245,116 @@ export class StorageCleanupAttribution {
     return { assetId: resolved.assetId, target: first.target };
   }
 
+  /** Revalidate the original delegated proof after the cleanup phase has advanced. */
+  async authorizeDelegatedRetirement(input: {
+    jobId: string;
+    epoch: number;
+    binding: string;
+    key: string;
+    retirement: string;
+  }): Promise<boolean> {
+    return this.verifyDelegatedRetirement(input, 'deleting');
+  }
+
+  /** A completed predecessor can prove an earlier delegated retirement of the same target. */
+  async hasCompletedDelegatedRetirement(
+    input: Parameters<StorageCleanupAttribution['authorizeDelegatedRetirement']>[0],
+  ): Promise<boolean> {
+    return this.verifyDelegatedRetirement(input, 'complete');
+  }
+
+  private async verifyDelegatedRetirement(
+    input: Parameters<StorageCleanupAttribution['authorizeDelegatedRetirement']>[0],
+    phase: 'deleting' | 'complete',
+  ): Promise<boolean> {
+    const value = z
+      .object({
+        jobId: z.uuid(),
+        epoch: generation,
+        binding: z.string().regex(/^[a-f0-9]{64}$/),
+        key: z.string().min(1),
+        retirement: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .parse(input);
+    const journal = new StorageCleanupJournal(this.database, this.dialect, this.namespace);
+    const job = await journal.get(value.jobId);
+    const tombstone = await new StorageWriteJournal(this.database, this.dialect, this.namespace).tombstone(
+      job.subjectId,
+    );
+    if (
+      job.phase !== phase ||
+      job.epoch !== value.epoch ||
+      tombstone?.jobId !== job.id ||
+      tombstone.generation !== job.generation
+    )
+      throw new Error('Delegated target cleanup authority does not match');
+    if (job.retentionPolicy !== 'job-id-snapshots-v1') return false;
+    if (phase === 'complete' && !(await journal.hasCompletedTarget(job.id, value))) return false;
+    const references = new StorageReferenceRegistry(this.database, this.dialect, this.namespace);
+    let cursor: string | null = null;
+    do {
+      const result = await journal.listManifests(job.id, cursor);
+      for (const page of result.pages) {
+        for (const [index, entry] of page.entries.entries()) {
+          if (
+            !entry ||
+            typeof entry !== 'object' ||
+            Array.isArray(entry) ||
+            entry.kind !== 'storage_delegated_reference'
+          )
+            continue;
+          const saved = delegatedReference.parse(entry);
+          if (createHash('sha256').update(saved.operationId).digest('hex') !== value.retirement) continue;
+          const prepared = prepareStorageReference(
+            saved.prepared as Parameters<typeof prepareStorageReference>[0],
+          );
+          const resolution = page.resolution?.entries.find((item) => item.index === index);
+          if (
+            saved.namespace !== this.namespace ||
+            saved.jobId !== job.id ||
+            saved.subjectId !== job.subjectId ||
+            saved.generation !== job.generation ||
+            saved.epoch > job.epoch ||
+            prepared.target.binding !== value.binding ||
+            prepared.target.key !== value.key ||
+            !prepared.scopes.some((scope) => isDeepStrictEqual(scope, saved.originalScope)) ||
+            page.resolution?.resolver !== 'delegated-asset-v1' ||
+            resolution?.kind !== 'storage' ||
+            !isDeepStrictEqual(resolution.targets, [prepared.target]) ||
+            !isDeepStrictEqual(resolution.collectorIds, [`delegated:${saved.operationId}`])
+          )
+            throw new Error('Delegated target proof does not match');
+          const binding = await this.delegatedBinding(saved.operationId, saved.consumer).read();
+          if (
+            !binding ||
+            !isDeepStrictEqual(delegatedBinding.parse(binding.state), delegatedBindingFor(saved))
+          )
+            throw new Error('Delegated asset binding mismatch');
+          const retirement = await references.readRetirement(saved.operationId, saved.consumer);
+          if (
+            !retirement ||
+            retirement.status !== 'pending' ||
+            retirement.replacementAssetId !== null ||
+            retirement.previousReference !== saved.reference ||
+            retirement.attribution?.assetId !== saved.assetId ||
+            !isDeepStrictEqual(retirement.attribution.prepared, prepared)
+          )
+            throw new Error('Delegated asset retirement mismatch');
+          await new StorageTargetFence(this.database, this.dialect).requireRetired({
+            ...prepared.target,
+            retirementId: saved.operationId,
+          });
+          return true;
+        }
+      }
+      if (result.cursor !== null && cursor !== null && result.cursor <= cursor)
+        throw new Error('Storage manifest cursor did not advance');
+      cursor = result.cursor;
+    } while (cursor !== null);
+    return false;
+  }
+
   async inspectPage(input: {
     jobId: string;
     epoch: number;

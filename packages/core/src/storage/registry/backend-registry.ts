@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { normalizeStorageReference, storageBackendBinding } from './references';
-import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
+import { sqlStateBackend, sqlStateRows, type SqlExecutor } from '../sql/sql';
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const namespaceSchema = z.string().min(1).max(200);
@@ -142,6 +142,22 @@ export class StorageBackendRegistry {
     const registration = this.validate(record.state);
     if (registration.id !== id) throw new Error('Storage backend registration identity mismatch');
     return registration;
+  }
+
+  /** List retained backend descriptors in bounded pages for explicit reference classification. */
+  async list(after: string | null = null) {
+    const prefix = `sd-b:1:${this.namespaceHash}:`;
+    const rows = await sqlStateRows(this.database, this.dialect, prefix, after, 100);
+    const backends = rows.map((row) => {
+      if (typeof row.revision !== 'string') throw new Error('Invalid state revision');
+      const state =
+        this.dialect === 'sqlite' && typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
+      const registration = this.validate(state);
+      if (row.id !== `${prefix}${registration.id}`)
+        throw new Error('Storage backend registration identity mismatch');
+      return registration;
+    });
+    return { backends, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
   }
 
   async register(prepared: PreparedStorageBackend): Promise<void> {

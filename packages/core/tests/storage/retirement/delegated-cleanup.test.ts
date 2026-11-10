@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { StorageCleanupAttribution } from '../../../src/storage/cleanup/cleanup-attribution';
 import { CleanupExecutionJournal } from '../../../src/storage/cleanup/cleanup-execution';
 import { StorageCleanupJournal } from '../../../src/storage/cleanup/cleanup-journal';
@@ -122,6 +122,7 @@ async function fixture() {
     backend,
     cleanup: journal,
     close,
+    database,
     executor,
     job,
     local,
@@ -133,6 +134,199 @@ async function fixture() {
     worksheet,
   };
 }
+
+async function prepareLater(item: Awaited<ReturnType<typeof fixture>>, subjectId: string, retention = true) {
+  const later = prepareStorageCleanup({
+    namespace: 'test',
+    subjectId,
+    generation: 1,
+    ...(retention ? { retentionPolicy: 'job-id-snapshots-v1' as const } : {}),
+  });
+  await item.transaction(async (tx) => {
+    const journal = new StorageCleanupJournal(tx, 'sqlite', 'test');
+    await journal.createJob(later);
+    await journal.registerCollectors(later.id, later.epoch, [
+      {
+        id: 'inventory',
+        kind: 'inventory',
+        backendIds: [item.backend.id],
+        scope: item.worksheet.target.key,
+        match: 'key',
+      },
+    ]);
+    await journal.recordManifestPage(later.id, later.epoch, { id: 'reference', entries: [{}] });
+    await journal.resolveManifest(later.id, later.epoch, 'reference', {
+      resolver: 'fixture',
+      entries: [{ index: 0, kind: 'storage', targets: [item.worksheet.target] }],
+    });
+  });
+  return later;
+}
+
+async function runLater(
+  item: Awaited<ReturnType<typeof fixture>>,
+  jobId: string,
+  remove: (key: string) => Promise<void>,
+) {
+  return runStorageCleanup({
+    namespace: 'test',
+    dialect: 'sqlite',
+    jobId,
+    transaction: item.transaction,
+    executor: (tx) => tx,
+    ports: [
+      {
+        backendId: item.backend.id,
+        binding: item.backend.binding,
+        collect: async () => ({ targets: [], next: null }),
+        delete: remove,
+      },
+    ],
+  });
+}
+
+it('does not delete when the durable delegated binding is damaged', async () => {
+  const item = await fixture();
+  try {
+    item.database
+      .prepare("UPDATE SidedoorState SET state = json_set(state, '$.digest', ?) WHERE id LIKE 'sd-cda:1:%'")
+      .run('0'.repeat(64));
+    await expect(item.run((key) => item.local.delete(key))).rejects.toThrow('binding mismatch');
+    expect(await item.local.has(item.worksheet.target.key)).toBe(true);
+    expect(await item.local.has(item.other.target.key)).toBe(true);
+  } finally {
+    await item.close();
+  }
+});
+
+it.each(['resolver', 'target', 'collector'] as const)(
+  'does not delete when the delegated resolution %s is altered',
+  async (field) => {
+    const item = await fixture();
+    try {
+      if (field === 'target') {
+        item.database
+          .prepare(
+            "UPDATE SidedoorState SET state = json_insert(state, '$.resolution.entries[0].targets[#]', json(?)) WHERE id LIKE 'sd-m:1:%'",
+          )
+          .run(JSON.stringify(item.other.target));
+      } else {
+        const path =
+          field === 'resolver' ? '$.resolution.resolver' : '$.resolution.entries[0].collectorIds[0]';
+        item.database
+          .prepare("UPDATE SidedoorState SET state = json_set(state, ?, ?) WHERE id LIKE 'sd-m:1:%'")
+          .run(path, 'altered');
+      }
+      await expect(item.run((key) => item.local.delete(key))).rejects.toThrow(
+        'Delegated target proof does not match',
+      );
+      expect(await item.local.has(item.worksheet.target.key)).toBe(true);
+      expect(await item.local.has(item.other.target.key)).toBe(true);
+    } finally {
+      await item.close();
+    }
+  },
+);
+
+it('does not let another cleanup job use the delegated retirement', async () => {
+  const item = await fixture();
+  try {
+    const otherJob = prepareStorageCleanup({
+      namespace: 'test',
+      subjectId: 'class:unrelated',
+      generation: 1,
+    });
+    await item.transaction(async (tx) => {
+      const journal = new StorageCleanupJournal(tx, 'sqlite', 'test');
+      await journal.createJob(otherJob);
+      await journal.registerCollectors(otherJob.id, otherJob.epoch, [
+        {
+          id: 'inventory',
+          kind: 'inventory',
+          backendIds: [item.backend.id],
+          scope: item.worksheet.target.key,
+          match: 'key',
+        },
+      ]);
+    });
+    await expect(
+      runStorageCleanup({
+        namespace: 'test',
+        dialect: 'sqlite',
+        jobId: otherJob.id,
+        transaction: item.transaction,
+        executor: (tx) => tx,
+        ports: [
+          {
+            backendId: item.backend.id,
+            binding: item.backend.binding,
+            collect: async () => ({ targets: [item.worksheet.target], next: null }),
+            delete: (key) => item.local.delete(key),
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    expect(await item.local.has(item.worksheet.target.key)).toBe(true);
+  } finally {
+    await item.close();
+  }
+});
+
+it('allows later cleanups to verify a target deleted by a completed delegated cleanup', async () => {
+  const item = await fixture();
+  try {
+    const laterJobs = [
+      await prepareLater(item, 'class:later'),
+      await prepareLater(item, 'class:last', false),
+    ];
+    await item.run((key) => item.local.delete(key));
+    expect((await item.cleanup.get(item.job.id)).phase).toBe('complete');
+    for (const later of laterJobs) {
+      await runLater(item, later.id, (key) => item.local.delete(key));
+      expect((await item.cleanup.get(later.id)).phase).toBe('complete');
+    }
+    expect(await item.local.has(item.other.target.key)).toBe(true);
+  } finally {
+    await item.close();
+  }
+});
+
+it.each(['manifest', 'binding', 'retirement', 'fence'] as const)(
+  'refuses a later cleanup when completed delegated %s evidence is damaged',
+  async (damage) => {
+    const item = await fixture();
+    try {
+      const later = await prepareLater(item, 'class:later');
+      await item.run((key) => item.local.delete(key));
+      if (damage === 'manifest')
+        item.database
+          .prepare(
+            "UPDATE SidedoorState SET state = json_set(state, '$.resolution.resolver', 'changed') WHERE id LIKE 'sd-m:1:%' AND json_extract(state, '$.jobId') = ?",
+          )
+          .run(item.job.id);
+      if (damage === 'binding')
+        item.database
+          .prepare(
+            "UPDATE SidedoorState SET state = json_set(state, '$.digest', ?) WHERE id LIKE 'sd-cda:1:%'",
+          )
+          .run('0'.repeat(64));
+      if (damage === 'retirement')
+        item.database.prepare("DELETE FROM SidedoorState WHERE id LIKE 'sd-retired:1:%'").run();
+      if (damage === 'fence')
+        item.database
+          .prepare(
+            "UPDATE SidedoorState SET state = json_set(state, '$.retirement', ?) WHERE id LIKE 'sd-tf:1:%'",
+          )
+          .run('0'.repeat(64));
+      const remove = vi.fn(async (key: string) => item.local.delete(key));
+      await expect(runLater(item, later.id, remove)).rejects.toThrow();
+      expect(remove).not.toHaveBeenCalled();
+      expect(await item.local.has(item.other.target.key)).toBe(true);
+    } finally {
+      await item.close();
+    }
+  },
+);
 
 it('deletes only the delegated worksheet and retains its cleanup evidence and target fence', async () => {
   const item = await fixture();

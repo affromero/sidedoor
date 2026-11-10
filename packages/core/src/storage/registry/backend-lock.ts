@@ -15,6 +15,19 @@ export interface BackendLock {
   release(): Promise<void>;
 }
 
+/** Physical backend identity is shared across application namespaces. */
+export function postgresBackendLockKey(binding: string): string {
+  const value = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(binding);
+  return createHash('sha256')
+    .update(JSON.stringify(['sidedoor-cleanup-v2', value]))
+    .digest()
+    .readBigInt64BE()
+    .toString();
+}
+
 /**
  * Acquire a PostgreSQL session lock on a newly owned dedicated connection.
  * This lock does not replace the cleanup execution journal or remote settlement evidence.
@@ -27,7 +40,7 @@ export async function acquirePostgresBackendLock(options: {
   signal?: AbortSignal;
   openConnection(): Promise<DedicatedBackendConnection>;
 }): Promise<BackendLock> {
-  const namespace = z.string().min(1).max(200).parse(options.namespace);
+  z.string().min(1).max(200).parse(options.namespace);
   const binding = z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -35,11 +48,7 @@ export async function acquirePostgresBackendLock(options: {
   const acquisitionSignal = options.signal;
   const openConnection = options.openConnection;
   acquisitionSignal?.throwIfAborted();
-  const key = createHash('sha256')
-    .update(JSON.stringify(['sidedoor-cleanup', namespace, binding]))
-    .digest()
-    .readBigInt64BE()
-    .toString();
+  const key = postgresBackendLockKey(binding);
   const connection = await openConnection();
   const lifetime = new AbortController();
   let unsubscribe: (() => void) | undefined;

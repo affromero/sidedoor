@@ -44,7 +44,15 @@ export async function cleanupStorageProbe<Transaction>(
       if (job.phase !== 'complete') await executions(tx).assertOwned(options.execution);
       else {
         const execution = await executions(tx).read(options.execution);
-        if (!execution || execution.status === 'unconfirmed')
+        if (
+          !execution ||
+          execution.status === 'unconfirmed' ||
+          !(await executions(tx).hasConfirmedCompletion(
+            job.id,
+            options.execution.backendBinding,
+            execution.executionId,
+          ))
+        )
           throw new Error('Completed probe requires its confirmed execution identity');
       }
       const backend = await new StorageBackendRegistry(
@@ -91,9 +99,13 @@ export async function cleanupStorageProbe<Transaction>(
       if (!collector.complete) {
         if (job.phase === 'verifying' && ++verificationPasses > 2)
           throw new Error('Storage probe destination keeps reappearing during verification');
+        const revision = await options.transaction(async (tx) => {
+          await executions(tx).assertOwned(options.execution);
+          return executions(tx).beginUnconfirmedOperation(options.execution, 'read');
+        });
         const exists = await options.has(options.target.key);
         await options.transaction(async (tx) => {
-          await executions(tx).assertOwned(options.execution);
+          await executions(tx).confirmObservedIo(options.execution, revision);
           return journal(tx).recordCollectorPage({
             jobId: job.id,
             epoch: job.epoch,
@@ -119,8 +131,14 @@ export async function cleanupStorageProbe<Transaction>(
         ticket.target.backendIds[0] !== options.target.backendId
       )
         throw new Error('Storage probe deletion target does not match');
+      const revision = await options.transaction(async (tx) => {
+        await executions(tx).authorizeTarget(options.execution, ticket);
+        return executions(tx).beginUnconfirmedOperation(options.execution, 'delete');
+      });
       await options.delete(ticket.target.key);
-      await options.transaction((tx) => executions(tx).acknowledgeTarget(options.execution, ticket));
+      await options.transaction((tx) =>
+        executions(tx).acknowledgeDispatchedTarget(options.execution, ticket, revision),
+      );
     }
     await options.transaction(async (tx) => {
       await executions(tx).assertOwned(options.execution);

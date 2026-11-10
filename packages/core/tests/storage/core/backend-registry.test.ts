@@ -63,6 +63,31 @@ describe('immutable storage backend registry', () => {
     expect(await registry.get(raw.id)).toEqual(raw);
   });
 
+  it('lists every retained backend across pages and rejects foreign or corrupt records', async () => {
+    const { database, registry, executor } = fixture();
+    const expected = new Set<string>();
+    for (let index = 0; index < 101; index++) {
+      const prepared = prepareStorageBackend('app', {
+        ...descriptor,
+        publicUrl: `https://cdn.example/${index}`,
+      });
+      await registry.register(prepared);
+      expected.add(prepared.id);
+    }
+    const first = await registry.list();
+    expect(first.backends).toHaveLength(100);
+    expect(first.cursor).not.toBeNull();
+    const second = await registry.list(first.cursor);
+    expect(second.backends).toHaveLength(1);
+    expect(second.cursor).toBeNull();
+    expect(new Set([...first.backends, ...second.backends].map((item) => item.id))).toEqual(expected);
+    await expect(new StorageBackendRegistry(executor, 'sqlite', 'other').list(first.cursor)).rejects.toThrow(
+      'cursor',
+    );
+    database.prepare("UPDATE SidedoorState SET revision = X'00' WHERE id = ?").run(first.cursor!);
+    await expect(registry.list()).rejects.toThrow('Invalid state revision');
+  });
+
   it('rolls back registration with the caller transaction and rejects corrupted identity', async () => {
     const { database, registry } = fixture();
     const prepared = prepareStorageBackend('app', descriptor);

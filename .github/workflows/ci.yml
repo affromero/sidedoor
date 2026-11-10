@@ -11,6 +11,22 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: sidedoor-test
+          POSTGRES_DB: sidedoor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sidedoor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SIDEDOOR_TEST_DATABASE_URL: postgresql://postgres:sidedoor-test@127.0.0.1:5432/sidedoor_test
     strategy:
       fail-fast: false
       matrix:

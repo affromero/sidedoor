@@ -6,6 +6,7 @@ import { cleanupRows } from '../cleanup/cleanup-collectors';
 import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { normalizeStorageReference, validateStorageKey } from './references';
 import { StorageTargetFence } from '../execution/target-fence';
+import { StorageWriteJournal } from '../execution/write-journal';
 
 const identity = z.string().min(1).max(200);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -76,6 +77,10 @@ const retirementSchema = z
     status: z.enum(['pending', 'unresolved']),
   })
   .strict();
+export {
+  allocationSchema as storageReferenceAllocationSchema,
+  retirementSchema as storageReferenceRetirementSchema,
+};
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -83,6 +88,7 @@ function hash(value: string): string {
 function assetId(prepared: PreparedStorageReference): string {
   return hash(JSON.stringify([prepared.target.binding, prepared.target.key]));
 }
+export { assetId as storageReferenceAssetId };
 
 /** Parse canonical cleanup snapshots using the same schemas as the retained registry. */
 export function storageSnapshotAttribution(input: unknown, namespace: string) {
@@ -180,6 +186,20 @@ export class StorageReferenceRegistry {
       throw new Error('Storage allocation identity mismatch');
     prepareStorageReferenceClaims(allocation.claims);
     return structuredClone(allocation);
+  }
+
+  /** Discover retained allocation claims even when their asset row has been removed. */
+  async listAllocations(after: string | null = null) {
+    const prefix = `sd-allocation:1:${this.prefix}:`;
+    const rows = await cleanupRows(this.database, this.dialect, prefix, after);
+    const allocations = rows.map((row) => {
+      const allocation = allocationSchema.parse(this.decode(row.state));
+      if (allocation.namespace !== this.namespace || row.id !== `${prefix}${allocation.assetId}`)
+        throw new Error('Storage allocation identity mismatch');
+      prepareStorageReferenceClaims(allocation.claims);
+      return allocation;
+    });
+    return { allocations, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
   }
 
   /** Exact replacement evidence. Unknown historical ownership stays explicitly unresolved. */
@@ -311,6 +331,21 @@ export class StorageReferenceRegistry {
     const replacements = prepareStorageReferenceClaims(input.consumers);
     const consumers = replacements.map((value) => value.consumer).sort();
     const next = this.validate(input.next);
+    const writes = new StorageWriteJournal(this.database, this.dialect, this.namespace);
+    for (const scope of next.scopes)
+      if (await writes.tombstone(scope.subjectId)) throw new Error('Storage reference scope is being erased');
+    const previousReferences = new Set(
+      replacements.flatMap((replacement) =>
+        replacement.previousReference ? [replacement.previousReference] : [],
+      ),
+    );
+    for (const reference of previousReferences) {
+      const previous = await this.attributed(reference);
+      if (!previous) continue;
+      for (const scope of previous.asset.prepared.scopes)
+        if (await writes.tombstone(scope.subjectId))
+          throw new Error('Previous storage scope is being erased');
+    }
     await this.validateBackend(next);
     await new StorageTargetFence(this.database, this.dialect).admit(next.target);
     const id = assetId(next);

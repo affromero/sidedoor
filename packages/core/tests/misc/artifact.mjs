@@ -84,6 +84,10 @@ try {
     import { createRequire } from 'node:module';
     const require = createRequire(import.meta.url);
     for (const api of [await import('thesidedoor-core/storage'), require('thesidedoor-core/storage')]) {
+      assert.equal(typeof api.writeSurvivorProjection, 'function');
+      assert.equal(typeof api.storageRelocationSuccessorKey, 'function');
+      assert.equal(typeof api.selectRelocationComponent, 'function');
+      assert.equal(typeof api.validateStorageSurvivorPaths, 'function');
       const db = new DatabaseSync(':memory:');
       try {
         db.exec('CREATE TABLE "SidedoorState" (id TEXT PRIMARY KEY, revision TEXT NOT NULL, state TEXT NOT NULL)');
