@@ -47,6 +47,20 @@ it('does not retain a session if connection loss accompanies a transaction abort
   expect(item.ended()).toBe(true);
   await expect(connection.query('SELECT 1', [])).rejects.toThrow('connection lost');
 });
+
+it('closes the session when the transaction abort classifier fails', async () => {
+  const item = fixture();
+  const failure = new Error('query failed');
+  item.port.isTransactionAborted = () => {
+    throw new Error('classification failed');
+  };
+  item.port.query = async () => {
+    throw failure;
+  };
+  const connection = await openPostgresDedicatedConnection(item.port, limits);
+  await expect(connection.query('SELECT 1', [])).rejects.toBe(failure);
+  expect(item.ended()).toBe(true);
+});
 function gate() {
   let finish!: () => void;
   const promise = new Promise<void>((resolve) => {

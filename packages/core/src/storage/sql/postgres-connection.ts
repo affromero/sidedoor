@@ -7,6 +7,7 @@ export interface PostgresClientPort extends SqlExecutor {
   end(): Promise<void>;
   onError(listener: (error: Error) => void): () => void;
   onEnd(listener: () => void): () => void;
+  /** True only for a server-confirmed aborted transaction, never an uncertain transport failure. */
   isTransactionAborted?(error: unknown): boolean;
 }
 export class PostgresConnectionCleanupError extends Error {
