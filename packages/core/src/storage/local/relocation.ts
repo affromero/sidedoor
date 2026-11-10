@@ -7,61 +7,28 @@ import { sqlStateBackend, type SqlExecutor } from '../sql/sql';
 import { cleanupRows } from '../cleanup/cleanup-collectors';
 import { StorageCleanupJournal } from '../cleanup/cleanup-journal';
 import { CleanupManifests, prepareStorageManifestPages } from '../cleanup/cleanup-manifests';
-
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const identity = z.string().min(1).max(200);
-const contentSchema = z
-  .object({ sha256: digest, bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
-  .strict();
-const proofSchema = contentSchema.extend({ assetId: digest }).strict();
-const scopeSchema = z
-  .object({ subjectId: identity, generation: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
-  .strict();
-const inputSchema = z
-  .object({
-    operationId: z.uuid(),
-    sourceAssetId: digest,
-    destinationAssetId: digest,
-    consumers: z.array(identity).min(1).max(100),
-    sourceRead: proofSchema,
-    destinationRead: proofSchema,
-  })
-  .strict();
-const receiptSchema = z
-  .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2)]),
-    kind: z.literal('storage_relocation'),
-    namespace: identity,
-    operationId: z.uuid(),
-    sourceAssetId: digest,
-    destinationAssetId: digest,
-    consumers: z.array(identity).min(1).max(100),
-    content: contentSchema,
-    scopes: z.array(scopeSchema).min(1).max(2000),
-  })
-  .strict();
-const successorSchema = z.object({ operationId: z.uuid() }).strict();
-const allocationSchema = z
-  .object({ schemaVersion: z.literal(1), kind: z.literal('storage_relocation_allocation') })
-  .strict();
-const scopeIndexSchema = scopeSchema.extend({ namespace: identity, operationId: z.uuid() }).strict();
-export type StorageRelocationInput = z.infer<typeof inputSchema>;
+import { traceBackwardRelocation, type BackwardRelocationInput } from './relocation/trace-backward';
+import { verifySuccessorInventory } from './relocation/successor-inventory';
+import {
+  allocationSchema,
+  combinedScopes,
+  contentSchema,
+  digest,
+  identity,
+  inputSchema,
+  receiptSchema,
+  scopeIndexSchema,
+  scopeSchema,
+  storageRelocationSuccessorKey,
+  successorSchema,
+  type StorageRelocationInput,
+} from './relocation/records';
+export { storageRelocationSuccessorKey } from './relocation/records';
+export type { StorageRelocationInput } from './relocation/records';
 
 function hash(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
-function combinedScopes(scopes: readonly z.infer<typeof scopeSchema>[]) {
-  const values = new Map<string, number>();
-  for (const scope of scopes) {
-    if (values.has(scope.subjectId) && values.get(scope.subjectId) !== scope.generation)
-      throw new Error('Storage relocation ownership generations conflict');
-    values.set(scope.subjectId, scope.generation);
-  }
-  return [...values]
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    .map(([subjectId, generation]) => ({ subjectId, generation }));
-}
-
 /**
  * Caller-owned Serializable transactions. Only a migration copy orchestrator may
  * record receipts, after hashing source bytes and independent destination readback.
@@ -99,7 +66,7 @@ export class StorageRelocationRegistry {
     return sqlStateBackend(
       this.database,
       this.dialect,
-      `sd-rels:1:${this.prefix}:${hash(JSON.stringify([assetId, consumer]))}`,
+      `sd-rels:1:${this.prefix}:${storageRelocationSuccessorKey(assetId, consumer)}`,
     );
   }
   private scopePrefix(subjectId: string) {
@@ -120,6 +87,8 @@ export class StorageRelocationRegistry {
    * dependent lineage and scope may lose the receipt without harming a survivor,
    * and that cleanup has authority over every target and all of its owners.
    * Endpoint checks do not establish that downstream dependencies are absent.
+   * Explicitly deferred projected operations are left untouched. The caller
+   * must finish their verified erasure before committing the cleanup transaction.
    * The callback must only read state and perform no external I/O. Roll back the
    * entire transaction if verification or any subsequent write fails.
    */
@@ -129,6 +98,7 @@ export class StorageRelocationRegistry {
     jobId: string;
     epoch: number;
     after?: string | null;
+    deferProjectedOperationIds?: readonly string[];
     verifyProjectedErasure?: (input: {
       operationId: string;
       subjectId: string;
@@ -139,7 +109,11 @@ export class StorageRelocationRegistry {
       scopes: readonly z.infer<typeof scopeSchema>[];
     }) => Promise<boolean>;
   }) {
-    const { verifyProjectedErasure, ...candidate } = input;
+    const { verifyProjectedErasure, deferProjectedOperationIds = [], ...candidate } = input;
+    const deferred = z.array(z.uuid()).max(1000).parse(deferProjectedOperationIds);
+    if (new Set(deferred).size !== deferred.length)
+      throw new Error('Deferred relocation operations are duplicated');
+    const deferredOperations = new Set(deferred);
     const value = z
       .object({
         subjectId: identity,
@@ -173,6 +147,7 @@ export class StorageRelocationRegistry {
         )
       )
         continue;
+      if (receipt.schemaVersion === 2 && deferredOperations.has(receipt.operationId)) continue;
       if (
         receipt.schemaVersion === 2 &&
         (typeof verifyProjectedErasure !== 'function' ||
@@ -251,7 +226,7 @@ export class StorageRelocationRegistry {
         const row = await this.successor(receipt.sourceAssetId, consumer).read();
         if (row && successorSchema.parse(row.state).operationId === receipt.operationId)
           await this.remove(
-            `sd-rels:1:${this.prefix}:${hash(JSON.stringify([receipt.sourceAssetId, consumer]))}`,
+            `sd-rels:1:${this.prefix}:${storageRelocationSuccessorKey(receipt.sourceAssetId, consumer)}`,
             row.revision,
           );
       }
@@ -292,6 +267,89 @@ export class StorageRelocationRegistry {
       receipts.push(receipt);
     }
     return { receipts, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
+  }
+  /** Check the exact scope index without trusting it to discover all receipts. */
+  async hasScopeIndex(input: { subjectId: string; generation: number; operationId: string }) {
+    const scope = scopeSchema.parse({ subjectId: input.subjectId, generation: input.generation });
+    const operationId = z.uuid().parse(input.operationId);
+    const row = await sqlStateBackend(
+      this.database,
+      this.dialect,
+      `${this.scopePrefix(scope.subjectId)}${operationId}`,
+    ).read();
+    if (!row) return false;
+    if (
+      !isDeepStrictEqual(scopeIndexSchema.parse(row.state), {
+        namespace: this.namespace,
+        operationId,
+        ...scope,
+      })
+    )
+      throw new Error('Storage relocation scope index does not match');
+    return true;
+  }
+  /** Discover receipts independently of their scope indexes in a Serializable snapshot. */
+  async listAll(after: string | null = null) {
+    const prefix = `sd-rel:1:${this.prefix}:`;
+    const rows = await cleanupRows(this.database, this.dialect, prefix, after, 100, 'uuid');
+    const receipts = rows.map((row) => {
+      if (typeof row.revision !== 'string') throw new Error('Invalid state revision');
+      const state =
+        this.dialect === 'sqlite' && typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
+      const receipt = receiptSchema.parse(state);
+      if (receipt.namespace !== this.namespace || row.id !== `${prefix}${receipt.operationId}`)
+        throw new Error('Storage relocation identity does not match');
+      return receipt;
+    });
+    return { receipts, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
+  }
+  /**
+   * Inventory opaque successor keys, including orphans, in a Serializable snapshot.
+   * The caller must match every key and operation to independently listed receipts;
+   * the stored hash cannot recover the source asset or consumer on its own.
+   */
+  async listSuccessorKeys(after: string | null = null) {
+    const prefix = `sd-rels:1:${this.prefix}:`;
+    const rows = await cleanupRows(this.database, this.dialect, prefix, after);
+    const successors = rows.map((row) => {
+      if (typeof row.revision !== 'string') throw new Error('Invalid state revision');
+      const key = digest.parse(String(row.id).slice(prefix.length));
+      const state =
+        this.dialect === 'sqlite' && typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
+      return { key, operationId: successorSchema.parse(state).operationId };
+    });
+    return { successors, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
+  }
+  /** Does not establish ownership, content provenance or complete graph discovery. */
+  async verifySuccessorInventory(options: { maxEntries: number; signal?: AbortSignal }) {
+    return verifySuccessorInventory(this, options);
+  }
+  /**
+   * Compare retained scope attribution without requiring live, untombstoned ownership.
+   * This does not verify copy content, consumer ownership, or the full relocation chain.
+   */
+  async verifyScopeAttribution(operationId: string): Promise<void> {
+    const id = z.uuid().parse(operationId);
+    const row = await this.receipt(id).read();
+    if (!row) throw new Error('Storage relocation receipt is missing');
+    const receipt = receiptSchema.parse(row.state);
+    if (receipt.namespace !== this.namespace || receipt.operationId !== id)
+      throw new Error('Storage relocation identity does not match');
+    const source = await this.references.readAsset(receipt.sourceAssetId);
+    const destination = await this.references.readAsset(receipt.destinationAssetId);
+    if (!source || !destination) throw new Error('Storage relocation scope attribution is missing');
+    if (
+      receipt.sourceAssetId === receipt.destinationAssetId ||
+      destination.asset.prepared.operationId !== receipt.operationId
+    )
+      throw new Error('Storage relocation endpoints do not match the operation');
+    if (
+      !isDeepStrictEqual(
+        receipt.scopes,
+        combinedScopes([...source.asset.prepared.scopes, ...destination.asset.prepared.scopes]),
+      )
+    )
+      throw new Error('Storage relocation scope attribution does not match its assets');
   }
   private async validate(receipt: z.infer<typeof receiptSchema>) {
     if (
@@ -771,6 +829,55 @@ export class StorageRelocationRegistry {
       }))
     )
       throw new Error('Storage relocation allocation changed concurrently');
+  }
+  /** Trace a live consumer's verified suffix without assuming earlier history is complete. */
+  async traceBackward(input: BackwardRelocationInput) {
+    const signal = input.signal;
+    const guarded = signal
+      ? new StorageRelocationRegistry(
+          {
+            query: async (sql, values) => {
+              signal.throwIfAborted();
+              try {
+                const rows = await this.database.query(sql, values);
+                signal.throwIfAborted();
+                return rows;
+              } catch (error) {
+                signal.throwIfAborted();
+                throw error;
+              }
+            },
+          },
+          this.dialect,
+          this.namespace,
+        )
+      : this;
+    return traceBackwardRelocation(input, {
+      references: guarded.references,
+      writes: guarded.writes,
+      readEdge: async (sourceAssetId, consumer) => {
+        const successor = await guarded.successor(sourceAssetId, consumer).read();
+        input.signal?.throwIfAborted();
+        if (!successor) return null;
+        const edge = successorSchema.parse(successor.state);
+        const row = await guarded.receipt(edge.operationId).read();
+        input.signal?.throwIfAborted();
+        if (!row) throw new Error('Storage relocation receipt is missing');
+        const receipt = receiptSchema.parse(row.state);
+        if (receipt.namespace !== this.namespace || receipt.operationId !== edge.operationId)
+          throw new Error('Storage relocation chain identity does not match');
+        return receipt;
+      },
+      verify: (receipt) =>
+        guarded.verifyExisting({
+          operationId: receipt.operationId,
+          sourceAssetId: receipt.sourceAssetId,
+          destinationAssetId: receipt.destinationAssetId,
+          consumers: receipt.consumers,
+          sourceRead: { assetId: receipt.sourceAssetId, ...receipt.content },
+          destinationRead: { assetId: receipt.destinationAssetId, ...receipt.content },
+        }),
+    });
   }
   /** Ordinary replacements have no relocation edge and never prove equivalent content. */
   async resolve(input: {

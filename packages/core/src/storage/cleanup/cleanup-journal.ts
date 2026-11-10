@@ -106,6 +106,41 @@ export class StorageCleanupJournal {
   async get(id: string): Promise<StorageCleanupJob> {
     return (await this.read(id)).job;
   }
+  /** Verify the exact target was acknowledged by an already completed cleanup. */
+  async hasCompletedTarget(id: string, target: { binding: string; key: string }): Promise<boolean> {
+    const job = await this.get(id);
+    if (
+      job.phase !== 'complete' ||
+      job.pending !== 0 ||
+      job.deleted < 1 ||
+      job.verification < 1 ||
+      job.inventoryCount < 1 ||
+      job.remainingCollectors !== 0 ||
+      job.unresolvedManifests !== 0 ||
+      job.drainCursor !== null
+    )
+      return false;
+    const targetId = cleanupHash(JSON.stringify([target.binding, target.key]));
+    const rowId = this.targetId({ jobId: id, id: targetId });
+    const row = await this.backend(rowId).read();
+    if (!row) return false;
+    const saved = this.validateTarget(row.state, id, rowId);
+    if (saved.status !== 'deleted' || saved.binding !== target.binding || saved.key !== target.key)
+      return false;
+    const retention = await retentionBackend(this.database, this.dialect, this.namespace, job.id).read();
+    if (job.retentionPolicy === undefined) return retention === null;
+    if (!retention) return false;
+    const proof = retentionStateSchema.parse(retention.state);
+    if (
+      proof.binding !== retentionBinding(job) ||
+      proof.policy !== job.retentionPolicy ||
+      proof.phase !== 'complete' ||
+      proof.cursor !== null ||
+      proof.activeId !== null
+    )
+      return false;
+    return true;
+  }
   /** Missing is distinct from malformed state or a failed database read. */
   async find(id: string): Promise<StorageCleanupJob | null> {
     return (await this.readOptional(id))?.job ?? null;
@@ -395,6 +430,44 @@ export class StorageCleanupJournal {
     await this.save(job, revision);
     return job;
   }
+  /** Discard inventory progress whose backend ownership became uncertain. */
+  async restartUnconfirmedInventory(id: string): Promise<void> {
+    const { job, revision } = await this.read(id);
+    if (
+      job.retentionPolicy &&
+      (job.phase === 'verifying' ||
+        job.phase === 'complete' ||
+        (await retentionBackend(this.database, this.dialect, this.namespace, job.id).read()))
+    )
+      throw new Error('Unconfirmed cleanup with retention requires reviewed recovery');
+    if (!['collecting', 'verifying', 'complete'].includes(job.phase)) return;
+    if (job.phase === 'collecting') {
+      let after: string | null = null;
+      let references = 0;
+      let inventories = 0;
+      let incompleteReferences = 0;
+      do {
+        const page = await this.collectors().list(job, after);
+        for (const collector of page.collectors) {
+          if (collector.kind === 'inventory') inventories++;
+          else {
+            references++;
+            if (!collector.complete) incompleteReferences++;
+          }
+        }
+        after = page.cursor;
+      } while (after !== null);
+      if (inventories !== job.inventoryCount || inventories + references !== job.collectorCount)
+        throw new Error('Storage cleanup collector inventory changed');
+      job.remainingCollectors = inventories + incompleteReferences;
+    } else {
+      job.phase = 'verifying';
+      job.remainingCollectors = job.inventoryCount;
+    }
+    job.verification++;
+    job.epoch++;
+    await this.save(job, revision);
+  }
   /** Each phase change invalidates deletion tickets from previous passes. */
   async transition(id: string, epoch: number): Promise<StorageCleanupJob> {
     const { job, revision } = await this.read(id, epoch);
@@ -467,8 +540,7 @@ export class StorageCleanupJournal {
     }
     return { tickets, cursor: rows.length === 100 ? String(rows.at(-1)!.id) : null };
   }
-  /** Call only after observed successful deletion, while retaining backend ownership. */
-  async acknowledgeTarget(ticket: StorageDeletionTicket): Promise<void> {
+  private async checkedTicket(ticket: StorageDeletionTicket) {
     const { job, revision } = await this.read(ticket.jobId, ticket.epoch);
     if (job.phase !== 'deleting') throw new Error('Storage cleanup is not deleting');
     const rowId = this.targetId(ticket.target);
@@ -482,6 +554,15 @@ export class StorageCleanupJournal {
       target.status !== 'pending'
     )
       throw new Error('Storage cleanup deletion ticket does not match');
+    return { job, revision, backend, previous, target };
+  }
+  /** Verify the exact ticket before fencing its target in the same transaction. */
+  async requirePendingTarget(ticket: StorageDeletionTicket): Promise<void> {
+    await this.checkedTicket(ticket);
+  }
+  /** Call only after observed successful deletion, while retaining backend ownership. */
+  async acknowledgeTarget(ticket: StorageDeletionTicket): Promise<void> {
+    const { job, revision, backend, previous, target } = await this.checkedTicket(ticket);
     if (
       !(await backend.compareAndSwap(previous.revision, {
         revision: randomUUID(),

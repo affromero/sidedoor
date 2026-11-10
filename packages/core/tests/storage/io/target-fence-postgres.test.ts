@@ -12,6 +12,9 @@ import {
   prepareStorageReference,
 } from '../../../src/storage/registry/reference-registry';
 import { storageBackendBinding } from '../../../src/storage/registry/references';
+import { StorageCleanupJournal } from '../../../src/storage/cleanup/cleanup-journal';
+import { CleanupExecutionJournal } from '../../../src/storage/cleanup/cleanup-execution';
+import { prepareStorageCleanup } from '../../../src/storage/cleanup/cleanup-state';
 
 const suite = process.env.SIDEDOOR_TEST_DATABASE_URL ? describe : describe.skip;
 suite('storage target fence with concurrent PostgreSQL transactions', () => {
@@ -42,6 +45,174 @@ suite('storage target fence with concurrent PostgreSQL transactions', () => {
     if (admin) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await Promise.allSettled([admin?.end(), writer?.end(), cleaner?.end()]);
   });
+
+  it('restarts a completed inventory when uncertain ownership is resolved', async () => {
+    const namespace = `recovery:${randomUUID()}`;
+    const location = { kind: 'object' as const, endpoint: 'https://storage.example', bucket: randomUUID() };
+    const backend = prepareStorageBackend(namespace, {
+      kind: 'object',
+      location,
+      binding: storageBackendBinding(location),
+    });
+    const job = prepareStorageCleanup({ namespace, subjectId: `subject:${randomUUID()}`, generation: 1 });
+    const target = { backendId: backend.id, binding: backend.binding, key: 'newly-discovered.pdf' };
+    const execution = {
+      executionId: randomUUID(),
+      executorId: randomUUID(),
+      jobId: job.id,
+      backendBinding: backend.binding,
+    };
+    const database = {
+      query: async (sql: string, values: readonly unknown[]) => (await cleaner.query(sql, [...values])).rows,
+    };
+    const cleanup = new StorageCleanupJournal(database, 'postgres', namespace);
+    const executions = new CleanupExecutionJournal(database, 'postgres', namespace);
+    await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await new StorageBackendRegistry(database, 'postgres', namespace).register(backend);
+    await cleanup.createJob(job);
+    await cleanup.registerCollectors(job.id, job.epoch, [
+      { id: 'inventory', kind: 'inventory', backendIds: [backend.id], scope: target.key, match: 'key' },
+    ]);
+    await executions.begin(execution);
+    let current = await executions.transition(job.id, job.epoch, [execution]);
+    current = await cleanup.recordDrainedIntents(job.id, current.epoch, null);
+    current = await cleanup.recordCollectorPage({
+      jobId: job.id,
+      epoch: current.epoch,
+      collectorId: 'inventory',
+      after: null,
+      next: null,
+      targets: [],
+    });
+    current = await executions.transition(job.id, current.epoch, [execution]);
+    current = await executions.transition(job.id, current.epoch, [execution]);
+    current = await cleanup.beginVerification(job.id, current.epoch);
+    current = await cleanup.recordCollectorPage({
+      jobId: job.id,
+      epoch: current.epoch,
+      collectorId: 'inventory',
+      after: null,
+      next: null,
+      targets: [],
+    });
+    current = await executions.transition(job.id, current.epoch, [execution]);
+    expect(current.phase).toBe('complete');
+    await executions.markUnconfirmed(execution);
+    await cleaner.query('COMMIT');
+    await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await executions.resolveUnconfirmed(execution, { id: randomUUID(), kind: 'remote-operations-settled' });
+    current = await cleanup.get(job.id);
+    expect(current.phase).toBe('verifying');
+    const replacement = { ...execution, executionId: randomUUID(), executorId: randomUUID() };
+    await executions.begin(replacement);
+    current = await cleanup.recordCollectorPage({
+      jobId: job.id,
+      epoch: current.epoch,
+      collectorId: 'inventory',
+      after: null,
+      next: null,
+      targets: [target],
+    });
+    current = await executions.transition(job.id, current.epoch, [replacement]);
+    expect(current.phase).toBe('deleting');
+    expect(
+      (await cleanup.pendingTargets(job.id, current.epoch)).tickets.map((item) => item.target.key),
+    ).toEqual([target.key]);
+    await cleaner.query('COMMIT');
+  });
+
+  it('rejects a successor inventory page racing detached execution recovery', async () => {
+    const namespace = `recovery-race:${randomUUID()}`;
+    const location = { kind: 'object' as const, endpoint: 'https://storage.example', bucket: randomUUID() };
+    const backend = prepareStorageBackend(namespace, {
+      kind: 'object',
+      location,
+      binding: storageBackendBinding(location),
+    });
+    const job = prepareStorageCleanup({ namespace, subjectId: `subject:${randomUUID()}`, generation: 1 });
+    const first = {
+      executionId: randomUUID(),
+      executorId: randomUUID(),
+      jobId: job.id,
+      backendBinding: backend.binding,
+    };
+    const second = { ...first, executionId: randomUUID(), executorId: randomUUID() };
+    const execute = (client: Client) => ({
+      async query(sql: string, values: readonly unknown[]) {
+        return (await client.query(sql, [...values])).rows;
+      },
+    });
+    const cleanup = new StorageCleanupJournal(execute(cleaner), 'postgres', namespace);
+    const executions = new CleanupExecutionJournal(execute(cleaner), 'postgres', namespace);
+    await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await new StorageBackendRegistry(execute(cleaner), 'postgres', namespace).register(backend);
+    await cleanup.createJob(job);
+    await cleanup.registerCollectors(job.id, job.epoch, [
+      {
+        id: 'inventory',
+        kind: 'inventory',
+        backendIds: [backend.id],
+        scope: 'learner/',
+        match: 'prefix',
+      },
+    ]);
+    await executions.begin(first);
+    await executions.settle(first);
+    await executions.begin(second);
+    await executions.markUnconfirmed(first);
+    let current = await executions.transition(job.id, job.epoch, [second]);
+    current = await cleanup.recordDrainedIntents(job.id, current.epoch, null);
+    expect(current.phase).toBe('collecting');
+    await cleaner.query('COMMIT');
+
+    await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await executions.resolveUnconfirmed(first, { id: randomUUID(), kind: 'remote-operations-settled' });
+    await writer.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    let signalUpdate: (() => void) | undefined;
+    const dispatched = new Promise<void>((resolve) => {
+      signalUpdate = resolve;
+    });
+    const concurrent = {
+      async query(sql: string, values: readonly unknown[]) {
+        const result = writer.query(sql, [...values]);
+        if (sql.startsWith('UPDATE "SidedoorState"')) signalUpdate?.();
+        return (await result).rows;
+      },
+    };
+    const outcome = new StorageCleanupJournal(concurrent, 'postgres', namespace)
+      .recordCollectorPage({
+        jobId: job.id,
+        epoch: current.epoch,
+        collectorId: 'inventory',
+        after: null,
+        next: null,
+        targets: [],
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    await dispatched;
+    await cleaner.query('COMMIT');
+    expect(await outcome).toMatchObject({ code: '40001' });
+    await writer.query('ROLLBACK');
+    await writer.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await expect(
+      new StorageCleanupJournal(execute(writer), 'postgres', namespace).recordCollectorPage({
+        jobId: job.id,
+        epoch: current.epoch,
+        collectorId: 'inventory',
+        after: null,
+        next: null,
+        targets: [],
+      }),
+    ).rejects.toThrow('phase changed');
+    await writer.query('ROLLBACK');
+    expect(await executions.current(backend.binding)).toMatchObject({
+      executionId: second.executionId,
+      status: 'active',
+    });
+  }, 30_000);
 
   it('finds retained work after scanning ten thousand older intents', async () => {
     const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -149,6 +320,136 @@ suite('storage target fence with concurrent PostgreSQL transactions', () => {
         }),
       ).rejects.toThrow(kind === 'write' ? 'retained writes' : 'live consumers');
       await cleaner.query('ROLLBACK');
+    },
+    30_000,
+  );
+
+  it.each(['writer', 'cleanup'] as const)(
+    'does not dispatch deletion when a cross-namespace reference and %s commit race',
+    async (first) => {
+      const location = { kind: 'object' as const, endpoint: 'https://storage.example', bucket: randomUUID() };
+      const descriptor = {
+        kind: 'object' as const,
+        location,
+        binding: storageBackendBinding(location),
+        publicUrl: 'https://media.example',
+      };
+      const backend = prepareStorageBackend('app', descriptor);
+      const other = prepareStorageBackend('other', descriptor);
+      const target = { backendId: backend.id, binding: backend.binding, key: `${randomUUID()}.pdf` };
+      const execute = (client: Client) => ({
+        async query(sql: string, values: readonly unknown[]) {
+          return (await client.query(sql, [...values])).rows;
+        },
+      });
+      const cleanup = new StorageCleanupJournal(execute(cleaner), 'postgres', 'app');
+      const executions = new CleanupExecutionJournal(execute(cleaner), 'postgres', 'app');
+      const job = prepareStorageCleanup({
+        namespace: 'app',
+        subjectId: `deleted:${randomUUID()}`,
+        generation: 1,
+      });
+      const binding = {
+        executionId: randomUUID(),
+        executorId: randomUUID(),
+        jobId: job.id,
+        backendBinding: backend.binding,
+      };
+      await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      await new StorageBackendRegistry(execute(cleaner), 'postgres', 'app').register(backend);
+      await new StorageBackendRegistry(execute(cleaner), 'postgres', 'other').register(other);
+      await cleanup.createJob(job);
+      await cleanup.registerCollectors(job.id, job.epoch, [
+        { id: 'inventory', kind: 'inventory', backendIds: [backend.id], scope: target.key, match: 'key' },
+      ]);
+      await executions.begin(binding);
+      let current = await executions.transition(job.id, job.epoch, [binding]);
+      current = await cleanup.recordDrainedIntents(job.id, current.epoch, null);
+      current = await cleanup.recordCollectorPage({
+        jobId: job.id,
+        epoch: current.epoch,
+        collectorId: 'inventory',
+        after: null,
+        next: null,
+        targets: [target],
+      });
+      current = await executions.transition(job.id, current.epoch, [binding]);
+      current = await executions.transition(job.id, current.epoch, [binding]);
+      const ticket = (await cleanup.pendingTargets(job.id, current.epoch)).tickets[0];
+      if (!ticket) throw new Error('Missing cleanup ticket');
+      await cleaner.query('COMMIT');
+      const reference = prepareStorageReference({
+        namespace: 'other',
+        operationId: randomUUID(),
+        reference: `https://media.example/${target.key}`,
+        target: { ...target, backendId: other.id },
+        scopes: [{ subjectId: 'profile:survivor', generation: 1 }],
+      });
+      const owner = new StorageReferenceRegistry(execute(writer), 'postgres', 'other');
+      if (first === 'writer') {
+        await writer.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await owner.replace({ consumer: 'survivor:avatar', previousReference: null, next: reference });
+        await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        let notifyDispatch = () => {};
+        const dispatched = new Promise<void>((resolve) => {
+          notifyDispatch = resolve;
+        });
+        const guarded = {
+          async query(sql: string, values: readonly unknown[]) {
+            const result = cleaner.query(sql, [...values]);
+            if (sql.startsWith('INSERT INTO "SidedoorState"') && String(values[0]).startsWith('sd-tf:'))
+              notifyDispatch();
+            return (await result).rows;
+          },
+        };
+        const attempt = new CleanupExecutionJournal(guarded, 'postgres', 'app')
+          .authorizeTarget(binding, ticket)
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        await dispatched;
+        await writer.query('COMMIT');
+        expect(await attempt).toMatchObject({ code: '40001' });
+        await cleaner.query('ROLLBACK');
+        await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await expect(executions.authorizeTarget(binding, ticket)).rejects.toThrow('live consumers');
+        await cleaner.query('ROLLBACK');
+        expect(
+          await owner.resolve({ consumer: 'survivor:avatar', reference: reference.reference }),
+        ).not.toBeNull();
+      } else {
+        await cleaner.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await executions.authorizeTarget(binding, ticket);
+        await writer.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        let notifyDispatch = () => {};
+        const dispatched = new Promise<void>((resolve) => {
+          notifyDispatch = resolve;
+        });
+        const guarded = {
+          async query(sql: string, values: readonly unknown[]) {
+            const result = writer.query(sql, [...values]);
+            if (sql.startsWith('INSERT INTO "SidedoorState"') && String(values[0]).startsWith('sd-tf:'))
+              notifyDispatch();
+            return (await result).rows;
+          },
+        };
+        const attempt = new StorageReferenceRegistry(guarded, 'postgres', 'other')
+          .replace({ consumer: 'survivor:avatar', previousReference: null, next: reference })
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        await dispatched;
+        await cleaner.query('COMMIT');
+        expect(await attempt).toMatchObject({ code: '40001' });
+        await writer.query('ROLLBACK');
+        await writer.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await expect(
+          owner.replace({ consumer: 'survivor:avatar', previousReference: null, next: reference }),
+        ).rejects.toThrow('target is retired');
+        await writer.query('ROLLBACK');
+      }
     },
     30_000,
   );

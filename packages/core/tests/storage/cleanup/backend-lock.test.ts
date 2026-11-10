@@ -73,3 +73,35 @@ it('keeps cleanup lifetime independent of cancellation after acquisition', async
   await lock.release();
   expect(item.closed()).toBe(true);
 });
+
+it('excludes cleanup in another namespace for the same physical backend', async () => {
+  const held = new Set<string>();
+  const openConnection = async (): Promise<DedicatedBackendConnection> => {
+    let key: string | undefined;
+    return {
+      async query(sql, values) {
+        if (!sql.includes('pg_try_advisory_lock')) throw new Error('Unexpected backend lock query');
+        const requested = String(values[0]);
+        if (held.has(requested)) return [{ acquired: false }];
+        key = requested;
+        held.add(requested);
+        return [{ acquired: true }];
+      },
+      onLoss: () => () => {},
+      async close() {
+        if (key) held.delete(key);
+      },
+    };
+  };
+  const binding = 'a'.repeat(64);
+  const first = await acquirePostgresBackendLock({ namespace: 'first', binding, openConnection });
+  try {
+    await expect(
+      acquirePostgresBackendLock({ namespace: 'second', binding, openConnection }),
+    ).rejects.toThrow('owned by another');
+  } finally {
+    await first.release();
+  }
+  const second = await acquirePostgresBackendLock({ namespace: 'second', binding, openConnection });
+  await second.release();
+});

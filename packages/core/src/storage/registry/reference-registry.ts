@@ -77,6 +77,10 @@ const retirementSchema = z
     status: z.enum(['pending', 'unresolved']),
   })
   .strict();
+export {
+  allocationSchema as storageReferenceAllocationSchema,
+  retirementSchema as storageReferenceRetirementSchema,
+};
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -84,6 +88,7 @@ function hash(value: string): string {
 function assetId(prepared: PreparedStorageReference): string {
   return hash(JSON.stringify([prepared.target.binding, prepared.target.key]));
 }
+export { assetId as storageReferenceAssetId };
 
 /** Parse canonical cleanup snapshots using the same schemas as the retained registry. */
 export function storageSnapshotAttribution(input: unknown, namespace: string) {

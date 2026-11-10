@@ -16,7 +16,19 @@ export {
   prepareStorageReferenceClaims,
 } from './registry/reference-registry';
 export type { PreparedStorageReference } from './registry/reference-registry';
-export { StorageRelocationRegistry, type StorageRelocationInput } from './local/relocation';
+export {
+  StorageRelocationRegistry,
+  storageRelocationSuccessorKey,
+  type StorageRelocationInput,
+} from './local/relocation';
+export { writeSurvivorProjection } from './local/relocation/projection/write-survivors';
+export { selectRelocationComponent } from './local/relocation/component';
+export { receiptSchema as storageRelocationReceiptSchema } from './local/relocation/records';
+export { validateSurvivorPaths as validateStorageSurvivorPaths } from './local/relocation/projection/validate-paths';
+export type {
+  SurvivorGraph as StorageSurvivorGraph,
+  SurvivorPath as StorageSurvivorPath,
+} from './local/relocation/projection/validate-paths';
 export type { StorageInstanceScope } from './sql/instance';
 export { LocalStorageCleanup } from './cleanup/backends/local-cleanup';
 export { openExecutionLocation, type ExecutionLocation } from './execution/execution-location';
@@ -49,6 +61,7 @@ export {
   type DedicatedBackendConnection,
   type BackendLock,
 } from './registry/backend-lock';
+export { acquirePostgresBackendLockGroup, type BackendLockGroup } from './registry/backend-lock-group';
 export {
   CleanupExecutionJournal,
   type CleanupExecutionBinding,

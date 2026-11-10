@@ -114,6 +114,16 @@ After a lost settlement response, the probe reads its exact execution receipt
 before reporting uncertainty. Fully confirmed cleanup followed by revoked
 authority still reports the authority failure.
 
+`runStorageCleanup()` and `cleanupStorageProbe()` fence each exact target before
+deletion. Authorization verifies the pending ticket, active execution, owning
+tombstone, registered references and write intents in one Serializable transaction.
+The caller must retain its backend lock through dispatch and settlement. All
+writers and cleanup workers for a physical target must use the same database and
+canonical backend binding; reconcile legacy references and drain older workers
+before enabling this protocol. Uncertain writes and stopped-writer evidence that
+does not prove remote completion remain blocked. A lost delete response remains
+unconfirmed until the previous operation is proven settled.
+
 Owned byte copies, Node readable copies and local reader copies return
 `{ sha256, bytes }` after all bytes are written and handles are confirmed closed.
 The digest covers detached source chunks. It proves copied content, not `fsync`
@@ -153,6 +163,25 @@ bounded page of receipts and their scope indexes. Missing asset attribution stay
 explicitly unresolved. The cleanup resolver must handle these dependencies before
 freezing discovery. An opaque allocation marker prevents erased operation reuse.
 Historical aliases and source objects must remain available while jobs depend on them.
+
+`verifySuccessorInventory()` compares every receipt consumer with the paginated
+successor inventory in the caller's Serializable transaction. It rejects missing,
+orphaned and mismatched successors, and requires an explicit entry limit. This
+comparison does not establish application ownership or copy provenance.
+`selectRelocationComponent()` selects connected receipt endpoints from complete
+inventories and reports related outside records, missing evidence and unresolved
+references for the application to classify. Its entry and data limits bound the
+supplied snapshot. It cannot detect omitted inventory pages or authorize changes.
+
+`writeSurvivorProjection()` rewrites a complete, independently verified shared
+history under the exact preparing cleanup jobs and tombstones. Its application
+verifier must read authoritative ownership, associations, copy provenance,
+replacement boundaries and later-erasure evidence in the same transaction. It
+must prove each removal belongs to an authorized scope and that the original
+copy jobs are settled and drained. Original claims cannot be replayed after
+projection. Validation rejects more than one million total path visits. Roll back
+the entire transaction on any failure. Empty records need
+separate coordinated erasure. Upgrade all readers before using this operation.
 
 Projected relocation receipts use schema version 2. Upgrade all relocation readers
 and cleanup workers, and drain older transactions before writing them. Older

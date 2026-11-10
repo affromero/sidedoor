@@ -88,7 +88,18 @@ async function fixture(outcome: 'unreferenced' | 'uncertain' | 'active' = 'unref
       objects.delete(key);
     },
   };
-  return { options, objects, cleanup, writes, job };
+  return { options, objects, cleanup, writes, job, executor };
+}
+
+async function recoverSettledIo(item: Awaited<ReturnType<typeof fixture>>) {
+  const previous = item.options.execution;
+  const next = { ...previous, executionId: randomUUID(), executorId: randomUUID() };
+  await item.options.transaction(async (tx) => {
+    const executions = new CleanupExecutionJournal(tx, 'sqlite', 'app');
+    await executions.resolveUnconfirmed(previous, { id: randomUUID(), kind: 'remote-operations-settled' });
+    await executions.begin(next);
+  });
+  return { ...item.options, execution: next };
 }
 
 it('deletes an admitted probe and completes a fresh verification inventory', async () => {
@@ -98,6 +109,132 @@ it('deletes an admitted probe and completes a fresh verification inventory', asy
   expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'complete', verification: 1 });
   expect(await item.writes.tombstone('profile:owner')).toBeNull();
   await cleanupStorageProbe(item.options);
+});
+
+it('records deletion uncertainty before dispatching the backend operation', async () => {
+  const item = await fixture();
+  await cleanupStorageProbe({
+    ...item.options,
+    delete: async (key) => {
+      const current = await new CleanupExecutionJournal(item.executor, 'sqlite', 'app').current(
+        item.options.target.binding,
+      );
+      expect(current?.status).toBe('unconfirmed');
+      item.objects.delete(key);
+    },
+  });
+});
+
+it('cannot replace an unresolved delete with an unrelated inventory operation', async () => {
+  const item = await fixture();
+  const executions = new CleanupExecutionJournal(item.executor, 'sqlite', 'app');
+  const revision = await item.options.transaction(() =>
+    executions.beginUnconfirmedOperation(item.options.execution, 'delete'),
+  );
+  await expect(
+    item.options.transaction(() => executions.beginUnconfirmedOperation(item.options.execution, 'read')),
+  ).rejects.toThrow('no longer owns');
+  await expect(
+    item.options.transaction(() => executions.confirmObservedIo(item.options.execution, revision)),
+  ).rejects.toThrow('operation does not match');
+  expect((await executions.current(item.options.target.binding))?.status).toBe('unconfirmed');
+});
+
+it('requires settled-operation evidence before retrying a lost inventory response', async () => {
+  const item = await fixture();
+  await expect(
+    cleanupStorageProbe({
+      ...item.options,
+      has: async () => {
+        throw new Error('inventory response lost');
+      },
+    }),
+  ).rejects.toThrow('inventory response lost');
+  const executions = new CleanupExecutionJournal(item.executor, 'sqlite', 'app');
+  expect((await executions.current(item.options.target.binding))?.status).toBe('unconfirmed');
+  await expect(cleanupStorageProbe(item.options)).rejects.toThrow('no longer owns');
+  await cleanupStorageProbe(await recoverSettledIo(item));
+  expect((await item.cleanup.get(item.job.id)).phase).toBe('complete');
+});
+
+it('rejects an inventory result after execution ownership becomes uncertain', async () => {
+  const item = await fixture();
+  await expect(
+    cleanupStorageProbe({
+      ...item.options,
+      has: async (key) => {
+        await item.options.transaction((tx) =>
+          new CleanupExecutionJournal(tx, 'sqlite', 'app').markUnconfirmed(item.options.execution),
+        );
+        return item.objects.has(key);
+      },
+    }),
+  ).rejects.toThrow('unconfirmed operation changed');
+  expect(item.objects.size).toBe(1);
+  expect(
+    (await new CleanupExecutionJournal(item.executor, 'sqlite', 'app').current(item.options.target.binding))
+      ?.status,
+  ).toBe('unconfirmed');
+});
+
+it('does not acknowledge deletion after execution ownership becomes uncertain', async () => {
+  const item = await fixture();
+  await expect(
+    cleanupStorageProbe({
+      ...item.options,
+      delete: async (key) => {
+        item.objects.delete(key);
+        await item.options.transaction((tx) =>
+          new CleanupExecutionJournal(tx, 'sqlite', 'app').markUnconfirmed(item.options.execution),
+        );
+      },
+    }),
+  ).rejects.toThrow('unconfirmed operation changed');
+  expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'deleting', pending: 1 });
+  expect(
+    (await new CleanupExecutionJournal(item.executor, 'sqlite', 'app').current(item.options.target.binding))
+      ?.status,
+  ).toBe('unconfirmed');
+});
+
+it('rejects an older completed-probe executor while its successor remains unconfirmed', async () => {
+  const item = await fixture();
+  await expect(
+    cleanupStorageProbe({
+      ...item.options,
+      has: async () => {
+        throw new Error('inventory response lost');
+      },
+    }),
+  ).rejects.toThrow('inventory response lost');
+  const successor = await recoverSettledIo(item);
+  await cleanupStorageProbe(successor);
+  await item.options.transaction((tx) =>
+    new CleanupExecutionJournal(tx, 'sqlite', 'app').markUnconfirmed(successor.execution),
+  );
+  await expect(cleanupStorageProbe(item.options)).rejects.toThrow('confirmed execution');
+});
+
+it('does not accept a completed probe while an older execution remains uncertain', async () => {
+  const item = await fixture();
+  const executions = new CleanupExecutionJournal(item.executor, 'sqlite', 'app');
+  const first = item.options.execution;
+  const second = { ...first, executionId: randomUUID(), executorId: randomUUID() };
+  await item.options.transaction(async () => {
+    await executions.settle(first);
+    await executions.begin(second);
+    await executions.markUnconfirmed(first);
+  });
+  const successor = { ...item.options, execution: second };
+  await expect(cleanupStorageProbe(successor)).rejects.toThrow('confirmed');
+  await item.options.transaction(() =>
+    executions.resolveUnconfirmed(first, {
+      id: randomUUID(),
+      kind: 'remote-operations-settled',
+    }),
+  );
+  await expect(cleanupStorageProbe(successor)).resolves.toBeUndefined();
+  expect((await item.cleanup.get(item.job.id)).phase).toBe('complete');
 });
 
 it('retains an uncertain upload even when its object is currently absent', async () => {
@@ -144,7 +281,7 @@ it('retains the captured executor when the caller mutates its identity during in
   await cleanupStorageProbe({ ...item.options, execution: original });
 });
 
-it('resumes deletion after the backend rejects cleanup', async () => {
+it('requires settled-operation evidence before resuming a rejected delete', async () => {
   const item = await fixture();
   await expect(
     cleanupStorageProbe({
@@ -156,7 +293,8 @@ it('resumes deletion after the backend rejects cleanup', async () => {
   ).rejects.toThrow('Storage unavailable');
   expect(item.objects.size).toBe(1);
   expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'deleting', pending: 1 });
-  await cleanupStorageProbe(item.options);
+  await expect(cleanupStorageProbe(item.options)).rejects.toThrow('no longer owns');
+  await cleanupStorageProbe(await recoverSettledIo(item));
   expect(item.objects.size).toBe(0);
   expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'complete' });
 });
@@ -188,7 +326,8 @@ it('retains recovery state when deletion happened but its response was lost', as
   ).rejects.toThrow('Deletion response lost');
   expect(item.objects.size).toBe(0);
   expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'deleting', pending: 1 });
-  await cleanupStorageProbe(item.options);
+  await expect(cleanupStorageProbe(item.options)).rejects.toThrow('no longer owns');
+  await cleanupStorageProbe(await recoverSettledIo(item));
   expect(await item.cleanup.get(item.job.id)).toMatchObject({ phase: 'complete', pending: 0 });
 });
 

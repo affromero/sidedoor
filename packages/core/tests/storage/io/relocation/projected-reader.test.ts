@@ -133,6 +133,15 @@ describe('projected relocation receipts', () => {
     const request = await erasure();
     const rows = () => database.prepare('SELECT id, revision, state FROM SidedoorState ORDER BY id').all();
     const before = rows();
+    expect(
+      await transaction(() =>
+        relocations.eraseForSubject({
+          ...request,
+          deferProjectedOperationIds: [evidence.operationId],
+        }),
+      ),
+    ).toEqual({ erased: 0, cursor: null });
+    expect(rows()).toEqual(before);
     await expect(transaction(() => relocations.eraseForSubject(request))).rejects.toThrow(
       'Projected relocation erasure ownership was not verified',
     );

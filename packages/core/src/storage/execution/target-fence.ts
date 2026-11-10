@@ -30,15 +30,20 @@ export class StorageTargetFence {
     private readonly dialect: 'postgres' | 'sqlite',
   ) {}
 
-  private target(input: { binding: string; key: string }) {
-    return hash(JSON.stringify([digest.parse(input.binding), validateStorageKey(input.key)]));
+  private target(input: { binding: string; key: string }, allowDirectoryMarker = false) {
+    const marker = allowDirectoryMarker && input.key.endsWith('/');
+    const key = marker ? `${validateStorageKey(input.key.slice(0, -1))}/` : validateStorageKey(input.key);
+    return hash(JSON.stringify([digest.parse(input.binding), key]));
   }
 
   private decode(value: unknown) {
     return this.dialect === 'sqlite' && typeof value === 'string' ? JSON.parse(value) : value;
   }
 
-  private async requireDrained(target: string) {
+  private async requireDrained(
+    target: string,
+    cleanup?: { namespace: string; subjectId: string; generation: number },
+  ) {
     const { storageWriteIntentSchema } = await import('./write-journal');
     const { storageAssetSchema } = await import('../registry/reference-registry');
     let after: string | null = null;
@@ -48,7 +53,20 @@ export class StorageTargetFence {
         const intent = storageWriteIntentSchema.parse(this.decode(row.state));
         const expected = `sd-w:1:${hash(intent.namespace)}:${hash(intent.subjectId)}:${intent.operationId}`;
         if (row.id !== expected) throw new Error('Storage write identity mismatch');
-        if (this.target(intent.target) === target) throw new Error('Storage target has retained writes');
+        if (this.target(intent.target) !== target) continue;
+        const settledUnreferenced =
+          intent.status === 'settled' &&
+          intent.outcome === 'unreferenced' &&
+          intent.resolution?.kind !== 'stopped_writer';
+        const settledOwned =
+          cleanup !== undefined &&
+          intent.status === 'settled' &&
+          intent.resolution?.kind !== 'stopped_writer' &&
+          intent.namespace === cleanup.namespace &&
+          intent.subjectId === cleanup.subjectId &&
+          intent.generation === cleanup.generation;
+        if (!cleanup || (!settledUnreferenced && !settledOwned))
+          throw new Error('Storage target has retained writes');
       }
       after = rows.length === 100 ? String(rows.at(-1)!.id) : null;
     } while (after);
@@ -103,6 +121,135 @@ export class StorageTargetFence {
     const state = stateSchema.parse(row.state);
     if (state.target !== target || state.status !== 'retired' || state.retirement !== retirement)
       throw new Error('Storage target retirement mismatch');
+  }
+
+  /** Fence an exact cleanup ticket before dispatch; all callers share one Serializable transaction. */
+  async retireForCleanup(input: {
+    binding: string;
+    key: string;
+    namespace: string;
+    jobId: string;
+    epoch: number;
+    executionId: string;
+  }): Promise<void> {
+    const { StorageCleanupJournal } = await import('../cleanup/cleanup-journal');
+    const { StorageWriteJournal } = await import('./write-journal');
+    const job = await new StorageCleanupJournal(this.database, this.dialect, input.namespace).get(
+      input.jobId,
+    );
+    const tombstone = await new StorageWriteJournal(this.database, this.dialect, input.namespace).tombstone(
+      job.subjectId,
+    );
+    if (
+      job.phase !== 'deleting' ||
+      job.epoch !== input.epoch ||
+      tombstone?.jobId !== job.id ||
+      tombstone.generation !== job.generation
+    )
+      throw new Error('Storage target cleanup authority does not match');
+    const target = this.target(input, true);
+    const retirement = hash(job.id);
+    const backend = sqlStateBackend(this.database, this.dialect, `sd-tf:1:${target}`);
+    const row = await backend.read();
+    let alreadyRetired = false;
+    if (row) {
+      const state = stateSchema.parse(row.state);
+      if (state.target !== target) throw new Error('Storage target fence identity mismatch');
+      if (state.status === 'retired') {
+        if (state.retirement !== retirement) {
+          const { StorageCleanupAttribution } = await import('../cleanup/cleanup-attribution');
+          const delegated = await new StorageCleanupAttribution(
+            this.database,
+            this.dialect,
+            input.namespace,
+          ).authorizeDelegatedRetirement({
+            jobId: input.jobId,
+            epoch: input.epoch,
+            binding: input.binding,
+            key: input.key,
+            retirement: state.retirement,
+          });
+          if (!delegated) {
+            const { CleanupExecutionJournal } = await import('../cleanup/cleanup-execution');
+            const executions = new CleanupExecutionJournal(this.database, this.dialect, input.namespace);
+            const current = await executions.current(input.binding);
+            if (
+              !current ||
+              current.status !== 'active' ||
+              current.jobId !== job.id ||
+              current.executionId !== z.uuid().parse(input.executionId)
+            )
+              throw new Error('Storage cleanup execution no longer owns this backend');
+            let cursor: string | null = null;
+            let confirmed = false;
+            do {
+              const page = await new StorageCleanupJournal(
+                this.database,
+                this.dialect,
+                input.namespace,
+              ).listJobs(cursor);
+              for (const previous of page.jobs) {
+                if (previous.id === job.id || previous.phase !== 'complete') continue;
+                if (
+                  !(await new StorageCleanupJournal(
+                    this.database,
+                    this.dialect,
+                    input.namespace,
+                  ).hasCompletedTarget(previous.id, input))
+                )
+                  continue;
+                const previousTombstone = await new StorageWriteJournal(
+                  this.database,
+                  this.dialect,
+                  input.namespace,
+                ).tombstone(previous.subjectId);
+                if (
+                  previousTombstone?.jobId !== previous.id ||
+                  previousTombstone.generation !== previous.generation
+                )
+                  continue;
+                const matchingRetirement =
+                  hash(previous.id) === state.retirement ||
+                  (await new StorageCleanupAttribution(
+                    this.database,
+                    this.dialect,
+                    input.namespace,
+                  ).hasCompletedDelegatedRetirement({
+                    jobId: previous.id,
+                    epoch: previous.epoch,
+                    binding: input.binding,
+                    key: input.key,
+                    retirement: state.retirement,
+                  }));
+                if (!matchingRetirement) continue;
+                confirmed = await executions.hasSettled(
+                  previous.id,
+                  input.binding,
+                  current.executionId,
+                  job.id,
+                );
+                break;
+              }
+              if (confirmed || page.cursor === null) break;
+              if (cursor && page.cursor <= cursor)
+                throw new Error('Storage cleanup history cursor did not advance');
+              cursor = page.cursor;
+            } while (cursor !== null);
+            if (!confirmed) throw new Error('Storage target has another retirement');
+          }
+        }
+        alreadyRetired = true;
+      }
+    }
+    await this.requireDrained(target, job);
+    if (alreadyRetired) return;
+    if (
+      !(await backend.compareAndSwap(row?.revision ?? null, {
+        revision: randomUUID(),
+        state: { kind: 'storage_target_fence', target, status: 'retired', retirement },
+      }))
+    )
+      throw new Error('Storage target fence changed concurrently');
   }
 
   /** Caller must fence queued work and use a Serializable transaction before deletion. */
