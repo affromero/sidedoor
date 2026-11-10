@@ -3,6 +3,30 @@
   "findings": [
     {
       "tool": "knip",
+      "mode": "production",
+      "file": "packages/core/tests/storage/cleanup/cases/journal-pagination.ts",
+      "kind": "files",
+      "name": "packages/core/tests/storage/cleanup/cases/journal-pagination.ts",
+      "reason": "Pagination cases are imported by the cleanup journal tests, which are excluded from production analysis."
+    },
+    {
+      "tool": "knip",
+      "mode": "production",
+      "file": "packages/core/tests/storage/cleanup/cases/runner-failure.ts",
+      "kind": "files",
+      "name": "packages/core/tests/storage/cleanup/cases/runner-failure.ts",
+      "reason": "Failure cases are imported by the cleanup runner tests, which are excluded from production analysis."
+    },
+    {
+      "tool": "knip",
+      "mode": "production",
+      "file": "packages/core/tests/storage/io/relocation/fixture.ts",
+      "kind": "files",
+      "name": "packages/core/tests/storage/io/relocation/fixture.ts",
+      "reason": "The relocation fixture is imported by tests that are excluded from production analysis."
+    },
+    {
+      "tool": "knip",
       "mode": "all",
       "file": "packages/flock/package.json",
       "kind": "binaries",
