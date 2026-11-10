@@ -5,8 +5,62 @@ import {
   type PostgresClientPort,
 } from '../../../src/storage/sql/postgres-connection';
 import { acquirePostgresBackendLock } from '../../../src/storage/registry/backend-lock';
+import { acquirePostgresBackendLockGroup } from '../../../src/storage/registry/backend-lock-group';
 
 const limits = { connectMs: 20, queryMs: 20, closeMs: 20 };
+
+it('rolls back a server-aborted transaction without losing the backend lock', async () => {
+  const item = fixture();
+  const serializationFailure = new Error('serialization failure');
+  const statements: string[] = [];
+  item.port.isTransactionAborted = (error) => error === serializationFailure;
+  item.port.query = async (sql) => {
+    statements.push(sql);
+    if (sql.startsWith('SELECT pg_try_advisory_lock')) return [{ acquired: true }];
+    if (sql === 'CONFLICT') throw serializationFailure;
+    return [];
+  };
+  const group = await acquirePostgresBackendLockGroup({
+    bindings: ['a'.repeat(64)],
+    openConnection: () => openPostgresDedicatedConnection(item.port, limits),
+  });
+  try {
+    await expect(group.transaction((tx) => tx.query('CONFLICT', []))).rejects.toBe(serializationFailure);
+    expect(statements).toContain('ROLLBACK');
+    expect(item.ended()).toBe(false);
+    await expect(group.transaction((tx) => tx.query('SELECT 1', []))).resolves.toEqual([]);
+  } finally {
+    await group.release();
+  }
+});
+
+it('does not retain a session if connection loss accompanies a transaction abort', async () => {
+  const item = fixture();
+  const failure = new Error('serialization failure');
+  item.port.isTransactionAborted = (error) => error === failure;
+  item.port.query = async () => {
+    item.error(new Error('connection lost'));
+    throw failure;
+  };
+  const connection = await openPostgresDedicatedConnection(item.port, limits);
+  await expect(connection.query('SELECT 1', [])).rejects.toBe(failure);
+  expect(item.ended()).toBe(true);
+  await expect(connection.query('SELECT 1', [])).rejects.toThrow('connection lost');
+});
+
+it('closes the session when the transaction abort classifier fails', async () => {
+  const item = fixture();
+  const failure = new Error('query failed');
+  item.port.isTransactionAborted = () => {
+    throw new Error('classification failed');
+  };
+  item.port.query = async () => {
+    throw failure;
+  };
+  const connection = await openPostgresDedicatedConnection(item.port, limits);
+  await expect(connection.query('SELECT 1', [])).rejects.toBe(failure);
+  expect(item.ended()).toBe(true);
+});
 function gate() {
   let finish!: () => void;
   const promise = new Promise<void>((resolve) => {

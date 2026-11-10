@@ -7,6 +7,8 @@ export interface PostgresClientPort extends SqlExecutor {
   end(): Promise<void>;
   onError(listener: (error: Error) => void): () => void;
   onEnd(listener: () => void): () => void;
+  /** True only for a server-confirmed aborted transaction, never an uncertain transport failure. */
+  isTransactionAborted?(error: unknown): boolean;
 }
 export class PostgresConnectionCleanupError extends Error {
   constructor(options?: ErrorOptions) {
@@ -111,6 +113,13 @@ export async function openPostgresDedicatedConnection(
         if (failure) throw failure;
         return rows;
       } catch (error) {
+        let transactionAborted = false;
+        try {
+          transactionAborted = client.isTransactionAborted?.(error) === true;
+        } catch {
+          // An uncertain classification must close the session.
+        }
+        if (!failure && transactionAborted) throw error;
         return fail(error);
       }
     },
