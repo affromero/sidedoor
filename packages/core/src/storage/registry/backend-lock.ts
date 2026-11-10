@@ -5,6 +5,8 @@ import type { SqlExecutor } from '../sql/sql';
 export interface DedicatedBackendConnection extends SqlExecutor {
   /** Report errors and unexpected closure, including an already-failed session immediately. */
   onLoss(listener: (error: Error) => void): () => void;
+  /** Confirm that this exact query error came from a server-aborted transaction. */
+  wasTransactionAborted?(error: unknown): boolean;
   /** Confirm session termination. Bound failure explicitly; never return this session to a pool. */
   close(): Promise<void>;
 }

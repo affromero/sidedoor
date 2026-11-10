@@ -9,6 +9,27 @@ import { acquirePostgresBackendLockGroup } from '../../../src/storage/registry/b
 
 const limits = { connectMs: 20, queryMs: 20, closeMs: 20 };
 
+it('recognizes only the latest server-confirmed aborted query on a live session', async () => {
+  const item = fixture();
+  const failure = new Error('serialization failure');
+  item.port.isTransactionAborted = (error) => error === failure;
+  item.port.query = async (sql) => {
+    if (sql === 'CONFLICT') throw failure;
+    return [];
+  };
+  const connection = await openPostgresDedicatedConnection(item.port, limits);
+  try {
+    await expect(connection.query('CONFLICT', [])).rejects.toBe(failure);
+    expect(connection.wasTransactionAborted?.(failure)).toBe(true);
+    expect(connection.wasTransactionAborted?.(new Error('serialization failure'))).toBe(false);
+    await connection.query('ROLLBACK', []);
+    expect(connection.wasTransactionAborted?.(failure)).toBe(false);
+  } finally {
+    await connection.close();
+  }
+  expect(connection.wasTransactionAborted?.(failure)).toBe(false);
+});
+
 it('rolls back a server-aborted transaction without losing the backend lock', async () => {
   const item = fixture();
   const serializationFailure = new Error('serialization failure');

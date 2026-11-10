@@ -120,7 +120,15 @@ export async function acquirePostgresBackendLockGroup(options: {
         return result;
       } catch (error) {
         accepting = false;
-        if (begun && !commitAttempted && !lifetime.signal.aborted && pending === 0) {
+        let confirmedAbort = false;
+        if (begun && commitAttempted && !lifetime.signal.aborted && pending === 0) {
+          try {
+            confirmedAbort = connection.wasTransactionAborted?.(error) === true;
+          } catch {
+            // An uncertain classification must close the session.
+          }
+        }
+        if (begun && (!commitAttempted || confirmedAbort) && !lifetime.signal.aborted && pending === 0) {
           try {
             await connection.query('ROLLBACK', []);
             begun = false;

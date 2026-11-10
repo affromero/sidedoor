@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Client } from 'pg';
+import { Client, DatabaseError } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { acquirePostgresBackendLock } from '../../../src/storage/registry/backend-lock';
 import { acquirePostgresBackendLockGroup } from '../../../src/storage/registry/backend-lock-group';
@@ -40,6 +40,7 @@ const openConnection = () => {
       async query(sql, values) {
         return (await client.query(sql, [...values])).rows;
       },
+      isTransactionAborted: (error) => error instanceof DatabaseError && error.code === '40001',
       onError(listener) {
         client.on('error', listener);
         return () => client.off('error', listener);
@@ -53,6 +54,51 @@ const openConnection = () => {
   );
 };
 suite('physical backend lock with PostgreSQL', () => {
+  it('retains the backend lock after PostgreSQL aborts a transaction at commit', async () => {
+    const admin = new Client({ connectionString: process.env.SIDEDOOR_TEST_DATABASE_URL });
+    const competitor = new Client({ connectionString: process.env.SIDEDOOR_TEST_DATABASE_URL });
+    const schema = `commit_abort_${randomUUID().replaceAll('-', '')}`;
+    const binding = randomUUID().replaceAll('-', '').repeat(2);
+    await Promise.all([admin.connect(), competitor.connect()]);
+    try {
+      await admin.query(`CREATE SCHEMA "${schema}"`);
+      await admin.query(`CREATE TABLE "${schema}".records (id INTEGER PRIMARY KEY, value INTEGER)`);
+      await admin.query(`INSERT INTO "${schema}".records VALUES (1, 0), (2, 0)`);
+      const group = await acquirePostgresBackendLockGroup({ bindings: [binding], openConnection });
+      try {
+        const failure = await group
+          .transaction(async (transaction) => {
+            await transaction.query(`SELECT sum(value) FROM "${schema}".records`, []);
+            await competitor.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+            await competitor.query(`SELECT sum(value) FROM "${schema}".records`);
+            await transaction.query(`UPDATE "${schema}".records SET value = 1 WHERE id = 1`, []);
+            await competitor.query(`UPDATE "${schema}".records SET value = 1 WHERE id = 2`);
+            await competitor.query('COMMIT');
+          })
+          .catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(DatabaseError);
+        expect((failure as DatabaseError).code).toBe('40001');
+        await expect(
+          acquirePostgresBackendLock({ namespace: 'other', binding, openConnection }),
+        ).rejects.toThrow('owned by another');
+        const rows = await group.transaction((transaction) =>
+          transaction.query(`SELECT id, value FROM "${schema}".records ORDER BY id`, []),
+        );
+        expect(rows).toEqual([
+          { id: 1, value: 0 },
+          { id: 2, value: 1 },
+        ]);
+      } finally {
+        await group.release();
+      }
+      const successor = await acquirePostgresBackendLock({ namespace: 'other', binding, openConnection });
+      await successor.release();
+    } finally {
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await Promise.all([admin.end(), competitor.end()]);
+    }
+  }, 30_000);
+
   it('excludes different namespaces until the owning session releases the backend', async () => {
     const binding = randomUUID().replaceAll('-', '').repeat(2);
     const first = await acquirePostgresBackendLock({ namespace: 'first', binding, openConnection });

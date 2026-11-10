@@ -46,6 +46,7 @@ export async function openPostgresDedicatedConnection(
   const end = client.end.bind(client);
   const listeners = new Set<(error: Error) => void>();
   let failure: Error | undefined;
+  let confirmedAbort: Error | undefined;
   let closing: Promise<void> | undefined;
   function lose(error: Error) {
     if (failure) return;
@@ -91,6 +92,9 @@ export async function openPostgresDedicatedConnection(
     return fail(error);
   }
   return {
+    wasTransactionAborted(error) {
+      return !failure && confirmedAbort !== undefined && error === confirmedAbort;
+    },
     onLoss(listener) {
       listeners.add(listener);
       if (failure) listener(failure);
@@ -100,6 +104,7 @@ export async function openPostgresDedicatedConnection(
     },
     async query(sql, values) {
       if (failure) throw failure;
+      confirmedAbort = undefined;
       const parameters = [...values];
       try {
         const rows = await bounded(
@@ -119,7 +124,10 @@ export async function openPostgresDedicatedConnection(
         } catch {
           // An uncertain classification must close the session.
         }
-        if (!failure && transactionAborted) throw error;
+        if (!failure && transactionAborted && error instanceof Error) {
+          confirmedAbort = error;
+          throw error;
+        }
         return fail(error);
       }
     },
