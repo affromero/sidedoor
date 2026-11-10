@@ -24,6 +24,69 @@ it('closes the lock session when a commit response is lost', async () => {
   await expect(group.transaction(async () => undefined)).rejects.toThrow();
 });
 
+it('closes the lock session if rollback after a confirmed commit abort fails', async () => {
+  const failure = new Error('server aborted commit');
+  let closed = false;
+  const connection: DedicatedBackendConnection = {
+    async query(sql) {
+      if (sql.startsWith('SELECT pg_try_advisory_lock')) return [{ acquired: true }];
+      if (sql === 'COMMIT') throw failure;
+      if (sql === 'ROLLBACK') throw new Error('rollback failed');
+      return [];
+    },
+    wasTransactionAborted: (error) => error === failure,
+    onLoss: () => () => {},
+    async close() {
+      closed = true;
+    },
+  };
+  const group = await acquirePostgresBackendLockGroup({
+    bindings: ['f'.repeat(64)],
+    openConnection: async () => connection,
+  });
+  const error = await group.transaction(async () => undefined).catch((value: unknown) => value);
+  expect(error).toBeInstanceOf(AggregateError);
+  expect((error as AggregateError).errors).toEqual([
+    failure,
+    expect.objectContaining({ message: 'rollback failed' }),
+  ]);
+  expect(closed).toBe(true);
+  await expect(group.transaction(async () => undefined)).rejects.toThrow();
+});
+
+it('closes the session when connection loss accompanies a commit abort', async () => {
+  const failure = new Error('server aborted commit');
+  let onLoss: ((error: Error) => void) | undefined;
+  let closed = false;
+  const connection: DedicatedBackendConnection = {
+    async query(sql) {
+      if (sql.startsWith('SELECT pg_try_advisory_lock')) return [{ acquired: true }];
+      if (sql === 'COMMIT') {
+        onLoss?.(new Error('connection lost'));
+        throw failure;
+      }
+      return [];
+    },
+    wasTransactionAborted: (error) => error === failure,
+    onLoss: (listener) => {
+      onLoss = listener;
+      return () => {
+        onLoss = undefined;
+      };
+    },
+    async close() {
+      closed = true;
+    },
+  };
+  const group = await acquirePostgresBackendLockGroup({
+    bindings: ['9'.repeat(64)],
+    openConnection: async () => connection,
+  });
+  await expect(group.transaction(async () => undefined)).rejects.toBe(failure);
+  expect(closed).toBe(true);
+  await expect(group.transaction(async () => undefined)).rejects.toThrow();
+});
+
 it('does not commit a transaction after its callback catches a query failure', async () => {
   let committed = false;
   let closed = false;
