@@ -4,6 +4,21 @@ Server modules for applications that use user-configured AI providers and self-h
 
 This package is Sidedoor's shared backend. Follow the [repository verification guide](https://github.com/affromero/sidedoor#verification) to validate the current source. Public package availability depends on the latest completed release.
 
+## Password login throttling
+
+Create one access service at application startup and reuse it across requests. Its HTTP handler shares a budget of 60 password sign-in attempts per minute across account and household login. Supplying a trusted client address adds a limit of 10 attempts per minute for that address. Excess requests receive HTTP 429 with a `Retry-After` header in seconds.
+
+```ts
+import { createAccessHandler } from 'thesidedoor-core/access/http';
+
+const handle = createAccessHandler({ access, origin, name: 'Private app' });
+
+// In a direct Node HTTP adapter, incoming is the socket-backed IncomingMessage.
+return handle(request, action, incoming.socket.remoteAddress);
+```
+
+Behind a reverse proxy, the socket address identifies the proxy. Supply the original client address only when your adapter verifies the proxy and the proxy overwrites client-supplied forwarding headers. Otherwise omit the third argument and apply per-client throttling at ingress. Each process has its own budget. Use a shared ingress limit across replicas. The account and household password checks also enforce their existing attempt limits.
+
 ## AI
 
 ```ts
