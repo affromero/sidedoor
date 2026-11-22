@@ -56,10 +56,11 @@ it('normalizes canonical and password-only origins without merging their authori
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
-async function fixture(origin = 'https://private.example') {
+async function fixture(origin = 'https://private.example', now = Date.now) {
   const directory = await mkdtemp(join(tmpdir(), 'sidedoor-http-'));
   directories.push(directory);
   const access = new AccessService({
+    now,
     store: new FileStateStore({
       path: join(directory, 'access.json'),
       initial: initialAccessState,
@@ -80,6 +81,31 @@ async function fixture(origin = 'https://private.example') {
   return { access, claim, handle, post };
 }
 describe('browser access endpoints', () => {
+  it('bounds password traffic before reading bodies and keeps separate client budgets', async () => {
+    let time = Date.now();
+    const { access } = await fixture(undefined, () => time);
+    const origin = 'https://private.example';
+    const handle = createAccessHandler({ access, origin, name: 'Private app' });
+    const submit = async (client?: string, action = 'login') => {
+      const request = new Request(origin, {
+        method: 'POST',
+        headers: { origin, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const response = await handle(request, action, client);
+      expect(request.bodyUsed).toBe(response.status !== 429);
+      return response;
+    };
+    for (let i = 0; i < 10; i++) expect((await submit('client-a')).status).toBe(400);
+    expect((await submit('client-a', 'household')).status).toBe(429);
+    expect((await submit('client-b')).status).toBe(400);
+    for (let i = 0; i < 49; i++) expect((await submit()).status).toBe(400);
+    const limited = await submit('client-c');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBe('60');
+    time += 60_000;
+    expect((await submit('client-a')).status).toBe(400);
+  });
   it('issues a household enrollment ceremony only after password admission on the canonical origin', async () => {
     const { access, claim, post } = await fixture();
     await access.claimOwner(claim, 'Owner', 'owner password for testing', 'household');
