@@ -1,49 +1,48 @@
-// sidedoor service worker.
-//
-// Network-first, and it never caches the HTML document. That makes the app
-// installable (a registered service worker is required) without the classic
-// PWA footgun of serving a stale shell after you redeploy: pages always come
-// from the network, and only hashed/immutable static assets are cached.
-//
-// Copy this file to your public root so it is served at /sw.js, then call
-// registerServiceWorker() from sidedoor/pwa (or register('/sw.js') yourself).
-
-const CACHE = 'sidedoor-v1';
+// Serve pages from the network. Keep an offline copy only of assets that
+// their publisher explicitly marks public and immutable.
+const CACHE = 'sidedoor-v2:' + self.registration.scope;
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE));
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
-  );
-  self.clients.claim();
+  event.waitUntil(caches.delete('sidedoor-v1').then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
-  if (url.pathname.startsWith('/api/')) return; // never cache API calls
+  if (request.method !== 'GET' || request.mode === 'navigate' ||
+      request.cache === 'no-store' || request.headers.has('authorization') ||
+      url.origin !== self.location.origin || url.search ||
+      !/^\/(?:_next\/static|assets|static)\//.test(url.pathname) ||
+      !/[.-][a-f\d]{8,}\.(?:css|m?js|woff2?|png|webp|avif|svg)$/i.test(url.pathname)) return;
 
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // Cache only fingerprinted static assets, never the HTML shell.
-        const cacheable =
-          response.ok &&
-          (url.pathname.startsWith('/_next/static/') ||
-            url.pathname.startsWith('/assets/') ||
-            url.pathname.startsWith('/static/'));
-        if (cacheable) {
-          const clone = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request)),
-  );
+  event.respondWith((async () => {
+    let response;
+    try {
+      response = await fetch(request);
+    } catch (error) {
+      const cached = await (await caches.open(CACHE)).match(request);
+      if (cached) return cached;
+      throw error;
+    }
+    try {
+      const cache = await caches.open(CACHE);
+      const policy = (response.headers.get('cache-control') || '').toLowerCase()
+        .split(',').map((directive) => directive.trim().split('=')[0]);
+      if (response.status === 200 && !response.redirected &&
+          policy.includes('public') && policy.includes('immutable') &&
+          !policy.some((directive) => ['private', 'no-store', 'no-cache', 'must-revalidate'].includes(directive)) &&
+          !response.headers.get('content-type')?.toLowerCase().includes('html')) {
+        await cache.put(request, response.clone());
+      } else {
+        await cache.delete(request, { ignoreVary: true });
+      }
+    } catch {
+      // Storage may be unavailable or full. Deliver the network response.
+    }
+    return response;
+  })());
 });
