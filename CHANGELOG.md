@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2026-11-22
+
+### Fixed
+
+- Restrict offline caching to public immutable assets and preserve other applications' caches during upgrades. Limit password login traffic before reading request bodies or accessing storage. ([#117](https://github.com/affromero/sidedoor/issues/117))
+- Preserve cleanup ownership across shared storage relocations and confirmed transaction aborts. ([#109](https://github.com/affromero/sidedoor/pull/109), [#111](https://github.com/affromero/sidedoor/pull/111), [#113](https://github.com/affromero/sidedoor/pull/113))
+
+### Changed
+
+- Update dependencies and CI actions. ([#114](https://github.com/affromero/sidedoor/pull/114), [#115](https://github.com/affromero/sidedoor/pull/115), [#116](https://github.com/affromero/sidedoor/pull/116))
+
 ## [0.5.8] - 2026-11-08
 
 ### Fixed
