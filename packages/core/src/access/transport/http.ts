@@ -128,6 +128,25 @@ export function validateAccessOrigins(options: Pick<AccessHttpOptions, 'origin' 
   return { canonicalOrigin: canonical.origin, passwordOrigins: origins.slice(1) };
 }
 
+const loginWindows = new WeakMap<
+  AccessService,
+  { until: number; total: number; clients: Map<string, number> }
+>();
+
+function loginRetryAfter(access: AccessService, client?: string): number {
+  const now = access.now();
+  let window = loginWindows.get(access);
+  if (!window || now >= window.until) {
+    window = { until: now + 60_000, total: 0, clients: new Map() };
+    loginWindows.set(access, window);
+  }
+  const count = client ? (window.clients.get(client) ?? 0) : 0;
+  if (window.total >= 60 || count >= 10) return Math.ceil((window.until - now) / 1000);
+  if (client) window.clients.set(client, count + 1);
+  window.total++;
+  return 0;
+}
+
 /** Mount beneath an application-owned route. Authenticated mutation checks also run in the service. */
 export function createAccessHandler(options: AccessHttpOptions) {
   const credentials = new PasskeyManagement(options.access);
@@ -148,7 +167,8 @@ export function createAccessHandler(options: AccessHttpOptions) {
   const reply = (value: unknown, status = 200) =>
     Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 
-  return async function handle(request: Request, action: string): Promise<Response> {
+  /** Pass the client address from trusted transport metadata to enable the per-client login limit. */
+  return async function handle(request: Request, action: string, clientAddress?: string): Promise<Response> {
     let requestOrigin = new URL(request.url);
     const cookie = (name: string, value: string, age: number) =>
       `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${requestOrigin.protocol === 'https:' ? '; Secure' : ''}`;
@@ -263,6 +283,14 @@ export function createAccessHandler(options: AccessHttpOptions) {
       if (!jsonContent) return reply({ error: 'unsupported_media_type' }, 415);
       if (Number(request.headers.get('content-length') ?? 0) > 64_000)
         return reply({ error: 'body_too_large' }, 413);
+      if (action === 'login' || action === 'household') {
+        const retryAfter = loginRetryAfter(options.access, clientAddress);
+        if (retryAfter) {
+          const response = reply({ error: 'rate_limited' }, 429);
+          response.headers.set('Retry-After', String(retryAfter));
+          return response;
+        }
+      }
       const body = await readAccessJson(request);
       if (action === 'check-origin') {
         z.object({}).strict().parse(body);
