@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-11-22
+
+### Added
+
+- Add GPT-6.2 Sol, GPT-6.2 Astra, GPT-6.1 Terra and Claude Fable 5.2 to the model presets and document suggestions. ([#119](https://github.com/affromero/sidedoor/issues/119))
+
 ## [0.5.9] - 2026-11-22
 
 ### Fixed
