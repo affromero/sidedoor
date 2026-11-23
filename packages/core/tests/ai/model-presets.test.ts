@@ -28,7 +28,15 @@ it('distinguishes discovery-only presets from an unknown provider', () => {
 });
 
 it('offers current OpenAI models to document assistants and Codex', () => {
-  const current = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'];
+  const current = [
+    'gpt-6.2-sol',
+    'gpt-6.2-astra',
+    'gpt-6.1-terra',
+    'gpt-6.1-sol',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+  ];
   for (const provider of ['openai', 'codex'])
     expect(modelSuggestions(provider, 'document')).toEqual(expect.arrayContaining(current));
   expect(modelPresets('openai')).toEqual(
@@ -46,7 +54,7 @@ it('offers current OpenAI models to document assistants and Codex', () => {
 });
 
 it('offers current Claude API models while keeping CLI moving aliases', () => {
-  const current = ['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+  const current = ['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
   expect(modelSuggestions('anthropic', 'document')).toEqual(expect.arrayContaining(current));
   expect(modelSuggestions('claude-code', 'document')).toEqual(['fable', 'opus', 'sonnet', 'haiku']);
   expect(modelPresets('anthropic')).toEqual(
