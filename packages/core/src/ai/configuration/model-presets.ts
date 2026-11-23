@@ -88,6 +88,24 @@ const presets: Record<string, readonly ModelPreset[]> = {
   ],
   openai: [
     {
+      id: 'gpt-6.2-sol',
+      displayName: 'GPT-6.2 Sol',
+      shortDisplayName: '6.2 Sol',
+      tier: 'balanced',
+      contextWindow: 1050000,
+      maxOutputTokens: 128000,
+      isReasoning: true,
+    },
+    {
+      id: 'gpt-6.2-astra',
+      displayName: 'GPT-6.2 Astra',
+      shortDisplayName: '6.2 Astra',
+      tier: 'best',
+      contextWindow: 1050000,
+      maxOutputTokens: 128000,
+      isReasoning: true,
+    },
+    {
       id: 'gpt-5-nano',
       displayName: 'GPT-5 Nano',
       shortDisplayName: '5 Nano',
@@ -411,6 +429,8 @@ export function modelPresets(provider: string): ModelPreset[] {
 export const documentSuggestions: Readonly<Record<string, readonly string[]>> = {
   'claude-code': ['fable', 'opus', 'sonnet', 'haiku'],
   codex: [
+    'gpt-6.2-sol',
+    'gpt-6.2-astra',
     'gpt-6.1-sol',
     'gpt-6-astra',
     'gpt-6-sol',
@@ -429,7 +449,16 @@ export const documentSuggestions: Readonly<Record<string, readonly string[]>> = 
     'claude-sonnet-5',
     'claude-haiku-4-5',
   ],
-  openai: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.5', 'gpt-5.5-mini'],
+  openai: [
+    'gpt-6.2-sol',
+    'gpt-6.2-astra',
+    'gpt-6.1-sol',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-5.5',
+    'gpt-5.5-mini',
+  ],
   ollama: ['qwen3:4b', 'qwen3:8b', 'gemma3:4b'],
   llamacpp: [],
   vllm: [],

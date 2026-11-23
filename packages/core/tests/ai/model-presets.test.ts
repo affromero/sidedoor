@@ -28,7 +28,7 @@ it('distinguishes discovery-only presets from an unknown provider', () => {
 });
 
 it('offers current OpenAI models to document assistants and Codex', () => {
-  const current = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'];
+  const current = ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'];
   for (const provider of ['openai', 'codex'])
     expect(modelSuggestions(provider, 'document')).toEqual(expect.arrayContaining(current));
   expect(modelPresets('openai')).toEqual(
