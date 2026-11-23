@@ -77,6 +77,15 @@ const presets: Record<string, readonly ModelPreset[]> = {
       isReasoning: true,
     },
     {
+      id: 'claude-fable-5-2',
+      displayName: 'Claude Fable 5.2',
+      shortDisplayName: 'Fable 5.2',
+      tier: 'max',
+      contextWindow: 1000000,
+      maxOutputTokens: 128000,
+      isReasoning: true,
+    },
+    {
       id: 'claude-fable-5-1',
       displayName: 'Claude Fable 5.1',
       shortDisplayName: 'Fable 5.1',
@@ -191,6 +200,15 @@ const presets: Record<string, readonly ModelPreset[]> = {
       displayName: 'GPT-6 Sol',
       shortDisplayName: '6 Sol',
       tier: 'balanced',
+      contextWindow: 1050000,
+      maxOutputTokens: 128000,
+      isReasoning: true,
+    },
+    {
+      id: 'gpt-6.1-terra',
+      displayName: 'GPT-6.1 Terra',
+      shortDisplayName: '6.1 Terra',
+      tier: 'fast',
       contextWindow: 1050000,
       maxOutputTokens: 128000,
       isReasoning: true,
@@ -431,6 +449,7 @@ export const documentSuggestions: Readonly<Record<string, readonly string[]>> = 
   codex: [
     'gpt-6.2-sol',
     'gpt-6.2-astra',
+    'gpt-6.1-terra',
     'gpt-6.1-sol',
     'gpt-6-astra',
     'gpt-6-sol',
@@ -440,6 +459,7 @@ export const documentSuggestions: Readonly<Record<string, readonly string[]>> = 
     'gpt-5.6-luna',
   ],
   anthropic: [
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-opus-5-5',
     'claude-sonnet-5-5',
@@ -452,6 +472,7 @@ export const documentSuggestions: Readonly<Record<string, readonly string[]>> = 
   openai: [
     'gpt-6.2-sol',
     'gpt-6.2-astra',
+    'gpt-6.1-terra',
     'gpt-6.1-sol',
     'gpt-6-astra',
     'gpt-6-sol',
