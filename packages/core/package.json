@@ -260,10 +260,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",
-    "@google/genai": "3.2.0",
+    "@google/genai": "3.6.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "14.1.0",
-    "openai": "^7.55.0",
+    "openai": "^7.60.0",
     "zod": "4.6.7"
   },
   "optionalDependencies": {
