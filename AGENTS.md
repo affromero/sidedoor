@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## AI provider settings
+
+When building or reviewing AI setup, start with the
+[provider settings integration checklist](README.md#build-provider-settings).
+Use the shared catalog and registry. Cover API and supported CLI transports,
+model capabilities, and a server-enforced test for the exact draft before save.
+Review the application's credential destination and CLI process boundary.
+
 ## Pull request workflow
 
 - Before opening or updating a PR, read `.github/PULL_REQUEST_TEMPLATE.md` and

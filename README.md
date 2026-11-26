@@ -147,6 +147,15 @@ SIDEDOOR_AI_API_KEY=... \
 node examples/ai-text.mjs 'Explain why leaves change color.'
 ```
 
+### Build provider settings
+
+1. Use Sidedoor's provider catalog and the selected adapter's model list. Filter by the capabilities the feature actually needs. Offer a custom model ID when the provider supports it, and verify it through the same test as a listed model.
+2. Make the transport explicit. Show API credential fields for API providers. Show installation and login status for supported CLI providers, which use the operator's subscription login. Use fixed application-owned commands and a restricted process environment.
+3. Keep drafts separate from saved settings. Capture the selected endpoint and protocol before resolving credentials. Test the exact draft provider, endpoint, model and credential on the server. Use a representative request for the feature. A credential probe alone cannot verify model access, image input, or structured output.
+4. Save only a currently tested selection. Invalidate the test when its inputs change. Leave settings intact on failure, keep secrets and raw provider errors out of browser responses, and test the save gate independently of the UI.
+
+Papernook provides the model picker, explicit model test, and keyless CLI login patterns. Sotto captures the credential destination first and binds credentials to that endpoint and protocol. Use both patterns together when building a new integration.
+
 ### Use a local or custom compatible server
 
 `captureCompatibleModel` captures a model, an explicit OpenAI-compatible endpoint,
