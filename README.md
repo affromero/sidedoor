@@ -156,6 +156,14 @@ node examples/ai-text.mjs 'Explain why leaves change color.'
 
 Papernook provides the model picker, explicit model test, and keyless CLI login patterns. Sotto captures the credential destination first and binds credentials to that endpoint and protocol. Use both patterns together when building a new integration.
 
+Use `ProviderPicker` from `thesidedoor/react` with your app's provider descriptors and required capabilities. It offers compatible models, renders credential fields for API providers, and shows CLI setup guidance for keyless providers. It clears the model and credential draft when the provider changes.
+
+[Watch the provider settings demo](docs/provider-settings-demo.gif).
+
+Use `createProviderTestGate` from `thesidedoor-core/ai` on the server. After authorizing the request, resolve the draft's effective credentials and approved destination. Call `gate.test(scope, draft, probe, signal)` with a probe for the feature. A successful probe returns a receipt that the browser can send with Save. The receipt carries no credential values. Clear it in the UI when the draft changes.
+
+Build the scope on the server from the app instance, authorized user, probe purpose and configuration revision. When saving, authorize again and resolve the draft and scope inside the write transaction. Call `gate.accepts(scope, draft, receipt)` before persisting and advance the revision after saving. The revision makes a receipt stale after the first successful write. Use a dedicated server secret of at least 32 bytes and share it only across replicas that accept the same receipts. The application still owns destination policy, probe rate limits, and CLI isolation.
+
 ### Use a local or custom compatible server
 
 `captureCompatibleModel` captures a model, an explicit OpenAI-compatible endpoint,

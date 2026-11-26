@@ -526,3 +526,9 @@ function raiseCleanupFailure(
     : cleanup;
   throw new GenerationUsageError(failure.message, usage, { cause: failure });
 }
+
+export {
+  createProviderTestGate,
+  type ProviderTestDraft,
+  type ProviderTestOptions,
+} from './configuration/tested-selection';
