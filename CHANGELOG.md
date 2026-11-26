@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 - Share the provider and model picker across React apps, with capability filtering and credential fields for each transport. ([#123](https://github.com/affromero/sidedoor/pull/123))
 - Issue short-lived receipts for tested provider settings. The server can verify the exact model, destination, and credentials before saving. ([#123](https://github.com/affromero/sidedoor/pull/123))
 
+### Changed
+
+- Update the OpenAI and Google SDKs and development tooling. ([#121](https://github.com/affromero/sidedoor/pull/121))
+
 ### Documentation
 
 - Document the shared setup flow and how to integrate it into another project. ([#123](https://github.com/affromero/sidedoor/pull/123))
