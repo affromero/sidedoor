@@ -23,3 +23,8 @@ export {
 export { QrCode, type QrCodeProps } from './connectivity/QrCode.js';
 export { ShareButtons, type ShareButtonsProps, type ShareChannel } from './connectivity/ShareButtons.js';
 export { useInstallPrompt, clientReachUrl, type InstallPrompt } from './pwa/useInstallPrompt.js';
+export {
+  ProviderPicker,
+  type ProviderPickerProps,
+  type ProviderSelectionDraft,
+} from './providers/ProviderPicker.js';
